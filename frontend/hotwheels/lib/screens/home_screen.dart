@@ -12,6 +12,7 @@ import '../models/collection_item.dart';
 import '../providers.dart';
 import 'collection_form.dart';
 import 'settings_screen.dart';
+import 'import_preview_screen.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
@@ -72,14 +73,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         barrierDismissible: false,
         builder: (ctx) => const Center(
           child: Card(
-            padding: EdgeInsets.all(24),
+            margin: EdgeInsets.all(24),
             child: Column(
               mainAxisSize: MainAxisSize.min,
-              children: [
-                CircularProgressIndicator(),
-                SizedBox(height: 16),
-                Text("Menghasilkan Excel dengan Gambar..."),
-              ],
+              children: [CircularProgressIndicator(), SizedBox(height: 16), Text("Menghasilkan Excel dengan Foto...")],
             ),
           ),
         ),
@@ -90,20 +87,41 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       sheet.name = 'HotWheels_Gallery';
 
       final headers = [
-        'ID', 'Nama', 'Tgl Beli', 'Lokasi', 'Harga', 'Penomoran', 
-        'Kategori', 'Kode', 'Warna 1', 'Tahun', 'FOTO'
+        'ID',
+        'Nama',
+        'Tgl Beli',
+        'Lokasi',
+        'Harga',
+        'Penomoran',
+        'Kategori',
+        'Penomoran Kat',
+        'Kode',
+        'Kendaraan',
+        'Tahun',
+        'Trackstar',
+        'Special',
+        'Netflix',
+        'Showdown',
+        'Warna 1',
+        'Warna 2',
+        'FotoBase64',
       ];
-      
+
       for (int i = 0; i < headers.length; i++) {
-        sheet.getRangeByIndex(1, i + 1).setText(headers[i]);
-        sheet.getRangeByIndex(1, i + 1).cellStyle.bold = true;
-        sheet.getRangeByIndex(1, i + 1).cellStyle.backColor = '#E3F2FD';
+        final cell = sheet.getRangeByIndex(1, i + 1);
+        cell.setText(headers[i]);
+        cell.cellStyle.bold = true;
+        cell.cellStyle.backColor = '#1E88E5';
+        cell.cellStyle.fontColor = '#FFFFFF';
+        cell.cellStyle.vAlign = xlsio.VAlignType.center;
+        cell.cellStyle.hAlign = xlsio.HAlignType.center;
       }
 
       for (int i = 0; i < state.items.length; i++) {
         final item = state.items[i];
         final row = i + 2;
-        
+        sheet.setRowHeightInPixels(row, 100);
+
         sheet.getRangeByIndex(row, 1).setText(item.id);
         sheet.getRangeByIndex(row, 2).setText(item.namaKendaraan);
         sheet.getRangeByIndex(row, 3).setText(item.tglPembelian);
@@ -111,23 +129,37 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         sheet.getRangeByIndex(row, 5).setNumber(item.hargaBeli);
         sheet.getRangeByIndex(row, 6).setText(item.penomoran);
         sheet.getRangeByIndex(row, 7).setText(item.kategoriKendaraan);
-        sheet.getRangeByIndex(row, 8).setText(item.kodeHotwheel);
-        sheet.getRangeByIndex(row, 9).setText(item.warna1);
-        sheet.getRangeByIndex(row, 10).setText(item.tahunKendaraan.toString());
+        sheet.getRangeByIndex(row, 8).setText(item.penomoranKategori);
+        sheet.getRangeByIndex(row, 9).setText(item.kodeHotwheel);
+        sheet.getRangeByIndex(row, 10).setText(item.kendaraan);
+        sheet.getRangeByIndex(row, 11).setText(item.tahunKendaraan.toString());
+        sheet.getRangeByIndex(row, 12).setText(item.trackstar ? '1' : '0');
+        sheet.getRangeByIndex(row, 13).setText(item.specialKategori);
+        sheet.getRangeByIndex(row, 14).setText(item.netflix ? '1' : '0');
+        sheet.getRangeByIndex(row, 15).setText(item.hotwheelShowdown ? '1' : '0');
+        sheet.getRangeByIndex(row, 16).setText(item.warna1);
+        sheet.getRangeByIndex(row, 17).setText(item.warna2 ?? '');
 
-        sheet.setRowHeightInPixels(row, 80);
+        // Tetap simpan teks Base64 di kolom 18 untuk fitur IMPORT nantinya
+        sheet.getRangeByIndex(row, 18).setText(item.foto);
 
         if (item.foto.isNotEmpty) {
           try {
             final List<int> imageBytes = base64Decode(item.foto);
-            sheet.pictures.addStream(row, 11, imageBytes);
+            // SISIPKAN GAMBAR VISUAL ke kolom 18 (di atas teks base64)
+            final xlsio.Picture picture = sheet.pictures.addStream(row, 18, imageBytes);
+            picture.lastRow = row;
+            picture.lastColumn = 18;
+            picture.height = 95;
+            picture.width = 95;
           } catch (e) {
-            debugPrint('Error inserting image: $e');
+            debugPrint('Error inserting visual image: $e');
           }
         }
       }
 
-      sheet.setColumnWidthInPixels(11, 100);
+      sheet.setColumnWidthInPixels(18, 110);
+      sheet.getRangeByName('A1:Q1').autoFitColumns();
 
       final List<int> bytes = workbook.saveAsStream();
       workbook.dispose();
@@ -136,60 +168,100 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         final blob = html.Blob([bytes]);
         final url = html.Url.createObjectUrlFromBlob(blob);
         final anchor = html.AnchorElement(href: url)
-          ..setAttribute("download", "HotWheels_Gallery_Report.xlsx")
+          ..setAttribute("download", "HW_Gallery_Visual_Report.xlsx")
           ..click();
         html.Url.revokeObjectUrl(url);
       }
 
-      Navigator.pop(context);
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Export Berhasil!')));
+      if (mounted) Navigator.pop(context);
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Export Visual Berhasil!')));
     } catch (e) {
       if (mounted) Navigator.pop(context);
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Export Gagal: $e')));
     }
   }
 
+  String _cellValue(dynamic cell) {
+    return cell?.value?.toString() ?? '';
+  }
+
   Future<void> _importFromExcel() async {
     try {
-      final result = await FilePicker.platform.pickFiles(type: FileType.custom, allowedExtensions: ['xlsx']);
+      final result = await FilePicker.pickFiles(type: FileType.custom, allowedExtensions: ['xlsx'], withData: true);
+
       if (result == null) return;
-      final bytes = result.files.first.bytes;
-      if (bytes == null) return;
+
+      final bytes = result.files.single.bytes;
+      if (bytes == null) {
+        throw Exception("File bytes is null");
+      }
 
       final excel = excel_lib.Excel.decodeBytes(bytes);
+
+      if (excel.tables.isEmpty) {
+        throw Exception("Sheet tidak ditemukan");
+      }
+
       final sheet = excel.tables.values.first;
 
       final List<CollectionItem> importedItems = [];
-      for (var i = 1; i < sheet.maxRows; i++) {
-        final row = sheet.rows[i];
-        if (row.length < 2) continue;
 
-        importedItems.add(CollectionItem(
-          id: row[0]?.value.toString() ?? '',
-          namaKendaraan: row[1]?.value.toString() ?? '',
-          tglPembelian: row[2]?.value.toString() ?? '',
-          lokasiBeli: row[3]?.value.toString() ?? '',
-          hargaBeli: double.tryParse(row[4]?.value.toString() ?? '0') ?? 0.0,
-          penomoran: row[5]?.value.toString() ?? '',
-          kategoriKendaraan: row[6]?.value.toString() ?? '',
-          penomoranKategori: row[7]?.value.toString() ?? '',
-          kodeHotwheel: row[8]?.value.toString() ?? '',
-          kendaraan: row[9]?.value.toString() ?? 'Mobil',
-          tahunKendaraan: int.tryParse(row[10]?.value.toString() ?? '0') ?? 0,
-          trackstar: row[11]?.value.toString() == '1',
-          specialKategori: row[12]?.value.toString() ?? '',
-          netflix: row[13]?.value.toString() == '1',
-          hotwheelShowdown: row[14]?.value.toString() == '1',
-          warna1: row[15]?.value.toString() ?? '',
-          warna2: row[16]?.value.toString(),
-          foto: '', 
-          isSynced: 0,
-        ));
+      for (int i = 1; i < sheet.maxRows; i++) {
+        try {
+          final row = sheet.rows[i];
+
+          debugPrint("========== ROW $i ==========");
+          debugPrint("Length : ${row.length}");
+
+          final item = CollectionItem(
+            id: row.length > 0 ? row[0]?.value.toString() ?? '' : '',
+            namaKendaraan: row.length > 1 ? row[1]?.value.toString() ?? '' : '',
+            tglPembelian: row.length > 2 ? row[2]?.value.toString() ?? '' : '',
+            lokasiBeli: row.length > 3 ? row[3]?.value.toString() ?? '' : '',
+            hargaBeli: row.length > 4 ? double.tryParse(row[4]?.value.toString() ?? '0') ?? 0 : 0,
+            penomoran: row.length > 5 ? row[5]?.value.toString() ?? '' : '',
+            kategoriKendaraan: row.length > 6 ? row[6]?.value.toString() ?? '' : '',
+            penomoranKategori: row.length > 7 ? row[7]?.value.toString() ?? '' : '',
+            kodeHotwheel: row.length > 8 ? row[8]?.value.toString() ?? '' : '',
+            kendaraan: row.length > 9 ? row[9]?.value.toString() ?? 'Mobil' : 'Mobil',
+            tahunKendaraan: row.length > 10 ? int.tryParse(row[10]?.value.toString() ?? '0') ?? 0 : 0,
+            trackstar: row.length > 11 ? row[11]?.value.toString() == '1' : false,
+            specialKategori: row.length > 12 ? row[12]?.value.toString() ?? '' : '',
+            netflix: row.length > 13 ? row[13]?.value.toString() == '1' : false,
+            hotwheelShowdown: row.length > 14 ? row[14]?.value.toString() == '1' : false,
+            warna1: row.length > 15 ? row[15]?.value.toString() ?? '' : '',
+            warna2: row.length > 16 ? row[16]?.value.toString() : null,
+            foto: row.length > 17 ? row[17]?.value.toString() ?? '' : '',
+            isSynced: 0,
+          );
+
+          importedItems.add(item);
+
+          debugPrint("Row $i berhasil dibuat");
+        } catch (e, s) {
+          debugPrint("========== ERROR ROW $i ==========");
+          debugPrint(e.toString());
+          debugPrint(s.toString());
+          rethrow;
+        }
       }
-      await ref.read(collectionListProvider.notifier).importItems(importedItems);
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Berhasil import ${importedItems.length} item')));
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Import Gagal: $e')));
+
+      debugPrint("=================================");
+      debugPrint("Total Imported : ${importedItems.length}");
+
+      if (!mounted) return;
+
+      Navigator.push(context, MaterialPageRoute(builder: (_) => ImportPreviewScreen(previewItems: importedItems)));
+
+      debugPrint("Navigator.push selesai");
+    } catch (e, s) {
+      debugPrint("========== IMPORT ERROR ==========");
+      debugPrint(e.toString());
+      debugPrint(s.toString());
+
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Import gagal: $e")));
     }
   }
 
@@ -293,7 +365,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         ),
       ),
       actions: [
-        IconButton(icon: const Icon(Icons.file_download_outlined), tooltip: 'Export Excel (dengan Gambar)', onPressed: _exportToExcelWithImages),
+        IconButton(
+          icon: const Icon(Icons.file_download_outlined),
+          tooltip: 'Export Excel Visual (dengan Gambar)',
+          onPressed: _exportToExcelWithImages,
+        ),
         IconButton(icon: const Icon(Icons.file_upload_outlined), tooltip: 'Import', onPressed: _importFromExcel),
         IconButton(
           icon: _isSyncing
