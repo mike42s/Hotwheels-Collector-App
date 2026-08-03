@@ -5,6 +5,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:syncfusion_flutter_xlsio/xlsio.dart' as xlsio;
+import 'package:image_picker/image_picker.dart';
+import 'package:image/image.dart' as img;
 // ignore: avoid_web_libraries_in_flutter
 import 'dart:html' as html;
 
@@ -60,6 +62,65 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     ref.read(collectionListProvider.notifier).setSort(field, _sortAsc);
   }
 
+  // WIDGET UNTUK MENAMPILKAN GAMBAR SECARA AMAN DARI BASE64
+  Widget _safeImage(String base64String, {double? width, double? height, BoxFit fit = BoxFit.cover}) {
+    if (base64String.isEmpty) {
+      return Icon(Icons.directions_car, size: width != null ? width * 0.5 : 50, color: Colors.grey);
+    }
+
+    try {
+      // Membersihkan karakter yang mungkin menyebabkan error decoding
+      final cleanedString = base64String.trim().replaceAll('\n', '').replaceAll('\r', '');
+      return Image.memory(
+        base64Decode(cleanedString),
+        width: width,
+        height: height,
+        fit: fit,
+        errorBuilder: (context, error, stackTrace) {
+          debugPrint('Image decode error: $error');
+          return const Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.broken_image, color: Colors.red, size: 24),
+                Text('Corrupted', style: TextStyle(fontSize: 8, color: Colors.red)),
+              ],
+            ),
+          );
+        },
+      );
+    } catch (e) {
+      return const Icon(Icons.broken_image, color: Colors.red);
+    }
+  }
+
+  Future<void> _quickAddPhoto(CollectionItem item) async {
+    final pickedFile = await ImagePicker().pickImage(
+      source: ImageSource.gallery,
+      maxWidth: 400, // Kecilkan agar masuk limit Excel
+      maxHeight: 400,
+      imageQuality: 40, // Kompresi lebih tinggi
+    );
+    if (pickedFile == null) return;
+
+    final bytes = await pickedFile.readAsBytes();
+    final decoded = img.decodeImage(bytes);
+    if (decoded == null) return;
+
+    // Resize agresif untuk Web & Excel safety
+    final resized = img.copyResize(decoded, width: 250);
+    final jpeg = img.encodeJpg(resized, quality: 40);
+    final base64String = base64Encode(jpeg);
+
+    final updatedItem = item.copyWith(foto: base64String, isSynced: 0);
+    await ref.read(databaseHelperProvider).updateItem(updatedItem);
+    ref.read(collectionListProvider.notifier).loadInitial();
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Foto berhasil ditambahkan!')));
+    }
+  }
+
   Future<void> _exportToExcelWithImages() async {
     try {
       final state = ref.read(collectionListProvider);
@@ -76,7 +137,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             margin: EdgeInsets.all(24),
             child: Column(
               mainAxisSize: MainAxisSize.min,
-              children: [CircularProgressIndicator(), SizedBox(height: 16), Text("Menghasilkan Excel dengan Foto...")],
+              children: [
+                CircularProgressIndicator(),
+                SizedBox(height: 16),
+                Text("Menghasilkan Excel Pro (Safe Mode)..."),
+              ],
             ),
           ),
         ),
@@ -140,20 +205,24 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         sheet.getRangeByIndex(row, 16).setText(item.warna1);
         sheet.getRangeByIndex(row, 17).setText(item.warna2 ?? '');
 
-        // Tetap simpan teks Base64 di kolom 18 untuk fitur IMPORT nantinya
-        sheet.getRangeByIndex(row, 18).setText(item.foto);
+        // PROTEKSI LIMIT EXCEL (32767 chars)
+        String photoData = item.foto;
+        if (photoData.length > 32700) {
+          photoData = photoData.substring(0, 32700);
+        }
+        sheet.getRangeByIndex(row, 18).setText(photoData);
 
         if (item.foto.isNotEmpty) {
           try {
+            // Hanya gambar yang valid yang disisipkan secara visual
             final List<int> imageBytes = base64Decode(item.foto);
-            // SISIPKAN GAMBAR VISUAL ke kolom 18 (di atas teks base64)
             final xlsio.Picture picture = sheet.pictures.addStream(row, 18, imageBytes);
             picture.lastRow = row;
             picture.lastColumn = 18;
             picture.height = 95;
             picture.width = 95;
           } catch (e) {
-            debugPrint('Error inserting visual image: $e');
+            debugPrint('Skip visual image for row $row due to decode error');
           }
         }
       }
@@ -168,100 +237,78 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         final blob = html.Blob([bytes]);
         final url = html.Url.createObjectUrlFromBlob(blob);
         final anchor = html.AnchorElement(href: url)
-          ..setAttribute("download", "HW_Gallery_Visual_Report.xlsx")
+          ..setAttribute("download", "HW_Gallery_Export_Stable.xlsx")
           ..click();
         html.Url.revokeObjectUrl(url);
       }
 
       if (mounted) Navigator.pop(context);
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Export Visual Berhasil!')));
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Export Berhasil!')));
     } catch (e) {
       if (mounted) Navigator.pop(context);
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Export Gagal: $e')));
     }
   }
 
-  String _cellValue(dynamic cell) {
-    return cell?.value?.toString() ?? '';
+  String _fixBase64Padding(String base64) {
+    if (base64.isEmpty) return "";
+    final cleaned = base64.trim().replaceAll('\n', '').replaceAll('\r', '');
+    int mod = cleaned.length % 4;
+    if (mod > 0) {
+      return cleaned + ('=' * (4 - mod));
+    }
+    return cleaned;
   }
 
   Future<void> _importFromExcel() async {
     try {
       final result = await FilePicker.pickFiles(type: FileType.custom, allowedExtensions: ['xlsx'], withData: true);
-
-      if (result == null) return;
+      if (result == null || result.files.isEmpty) return;
 
       final bytes = result.files.single.bytes;
-      if (bytes == null) {
-        throw Exception("File bytes is null");
-      }
+      if (bytes == null) throw Exception("File bytes null");
 
       final excel = excel_lib.Excel.decodeBytes(bytes);
-
-      if (excel.tables.isEmpty) {
-        throw Exception("Sheet tidak ditemukan");
-      }
-
       final sheet = excel.tables.values.first;
 
       final List<CollectionItem> importedItems = [];
+      for (var i = 1; i < sheet.maxRows; i++) {
+        final row = sheet.rows[i];
+        if (row.length < 2) continue;
 
-      for (int i = 1; i < sheet.maxRows; i++) {
-        try {
-          final row = sheet.rows[i];
+        String rawFoto = row.length > 17 ? (row[17]?.value?.toString() ?? '') : '';
+        String safeFoto = _fixBase64Padding(rawFoto);
 
-          debugPrint("========== ROW $i ==========");
-          debugPrint("Length : ${row.length}");
-
-          final item = CollectionItem(
-            id: row.length > 0 ? row[0]?.value.toString() ?? '' : '',
-            namaKendaraan: row.length > 1 ? row[1]?.value.toString() ?? '' : '',
-            tglPembelian: row.length > 2 ? row[2]?.value.toString() ?? '' : '',
-            lokasiBeli: row.length > 3 ? row[3]?.value.toString() ?? '' : '',
-            hargaBeli: row.length > 4 ? double.tryParse(row[4]?.value.toString() ?? '0') ?? 0 : 0,
-            penomoran: row.length > 5 ? row[5]?.value.toString() ?? '' : '',
-            kategoriKendaraan: row.length > 6 ? row[6]?.value.toString() ?? '' : '',
-            penomoranKategori: row.length > 7 ? row[7]?.value.toString() ?? '' : '',
-            kodeHotwheel: row.length > 8 ? row[8]?.value.toString() ?? '' : '',
-            kendaraan: row.length > 9 ? row[9]?.value.toString() ?? 'Mobil' : 'Mobil',
-            tahunKendaraan: row.length > 10 ? int.tryParse(row[10]?.value.toString() ?? '0') ?? 0 : 0,
-            trackstar: row.length > 11 ? row[11]?.value.toString() == '1' : false,
-            specialKategori: row.length > 12 ? row[12]?.value.toString() ?? '' : '',
-            netflix: row.length > 13 ? row[13]?.value.toString() == '1' : false,
-            hotwheelShowdown: row.length > 14 ? row[14]?.value.toString() == '1' : false,
-            warna1: row.length > 15 ? row[15]?.value.toString() ?? '' : '',
-            warna2: row.length > 16 ? row[16]?.value.toString() : null,
-            foto: row.length > 17 ? row[17]?.value.toString() ?? '' : '',
+        importedItems.add(
+          CollectionItem(
+            id: row[0]?.value?.toString() ?? '',
+            namaKendaraan: row[1]?.value?.toString() ?? '',
+            tglPembelian: row[2]?.value?.toString() ?? '',
+            lokasiBeli: row[3]?.value?.toString() ?? '',
+            hargaBeli: double.tryParse(row[4]?.value?.toString() ?? '0') ?? 0.0,
+            penomoran: row[5]?.value?.toString() ?? '',
+            kategoriKendaraan: row[6]?.value?.toString() ?? '',
+            penomoranKategori: row[7]?.value?.toString() ?? '',
+            kodeHotwheel: row[8]?.value?.toString() ?? '',
+            kendaraan: row[9]?.value?.toString() ?? 'Mobil',
+            tahunKendaraan: int.tryParse(row[10]?.value?.toString() ?? '0') ?? 0,
+            trackstar: row[11]?.value?.toString() == '1',
+            specialKategori: row[12]?.value?.toString() ?? '',
+            netflix: row[13]?.value?.toString() == '1',
+            hotwheelShowdown: row[14]?.value.toString() == '1',
+            warna1: row[15]?.value?.toString() ?? '',
+            warna2: row[16]?.value?.toString(),
+            foto: safeFoto,
             isSynced: 0,
-          );
-
-          importedItems.add(item);
-
-          debugPrint("Row $i berhasil dibuat");
-        } catch (e, s) {
-          debugPrint("========== ERROR ROW $i ==========");
-          debugPrint(e.toString());
-          debugPrint(s.toString());
-          rethrow;
-        }
+          ),
+        );
       }
 
-      debugPrint("=================================");
-      debugPrint("Total Imported : ${importedItems.length}");
-
-      if (!mounted) return;
-
-      Navigator.push(context, MaterialPageRoute(builder: (_) => ImportPreviewScreen(previewItems: importedItems)));
-
-      debugPrint("Navigator.push selesai");
-    } catch (e, s) {
-      debugPrint("========== IMPORT ERROR ==========");
-      debugPrint(e.toString());
-      debugPrint(s.toString());
-
-      if (!mounted) return;
-
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Import gagal: $e")));
+      if (mounted) {
+        Navigator.push(context, MaterialPageRoute(builder: (_) => ImportPreviewScreen(previewItems: importedItems)));
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Import Gagal: $e')));
     }
   }
 
@@ -367,7 +414,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       actions: [
         IconButton(
           icon: const Icon(Icons.file_download_outlined),
-          tooltip: 'Export Excel Visual (dengan Gambar)',
+          tooltip: 'Export',
           onPressed: _exportToExcelWithImages,
         ),
         IconButton(icon: const Icon(Icons.file_upload_outlined), tooltip: 'Import', onPressed: _importFromExcel),
@@ -412,7 +459,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       decoration: BoxDecoration(
         color: color.withOpacity(0.1),
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: color.withOpacity(0.2)),
+        border: Border.all(color: color.withValues(alpha: 0.2)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -482,12 +529,24 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Expanded(
-              child: Container(
-                width: double.infinity,
-                color: Theme.of(context).colorScheme.surfaceContainerHighest,
-                child: item.foto.isNotEmpty
-                    ? Image.memory(base64Decode(item.foto), fit: BoxFit.cover)
-                    : const Icon(Icons.directions_car, size: 50, color: Colors.grey),
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  Container(color: Theme.of(context).colorScheme.surfaceContainerHighest, child: _safeImage(item.foto)),
+                  if (item.foto.isEmpty)
+                    Positioned(
+                      bottom: 8,
+                      right: 8,
+                      child: CircleAvatar(
+                        radius: 18,
+                        backgroundColor: Colors.blue.withOpacity(0.8),
+                        child: IconButton(
+                          icon: const Icon(Icons.add_a_photo, size: 16, color: Colors.white),
+                          onPressed: () => _quickAddPhoto(item),
+                        ),
+                      ),
+                    ),
+                ],
               ),
             ),
             Padding(
