@@ -70,11 +70,14 @@ async function ensureDatabaseTables() {
         lokasi_beli NVARCHAR(255),
         harga_beli DECIMAL(18,2) NULL,
         nama_kendaraan NVARCHAR(255),
-        penomoran NVARCHAR(255),
+        penomoran_1 NVARCHAR(50),
+        penomoran_2 NVARCHAR(50),
         kategori_kendaraan NVARCHAR(255),
-        penomoran_kategori NVARCHAR(255),
+        penomoran_kategori_1 NVARCHAR(50),
+        penomoran_kategori_2 NVARCHAR(50),
         kode_hotwheel NVARCHAR(255),
         kendaraan NVARCHAR(50),
+        jenis_kendaraan NVARCHAR(100),
         tahun_kendaraan INT NULL,
         trackstar BIT DEFAULT 0,
         special_kategori NVARCHAR(255),
@@ -82,8 +85,30 @@ async function ensureDatabaseTables() {
         hotwheel_showdown BIT DEFAULT 0,
         warna_1 NVARCHAR(100) NOT NULL,
         warna_2 NVARCHAR(100),
+        warna_3 NVARCHAR(100),
         foto NVARCHAR(MAX) NULL
       );
+    END
+    ELSE
+    BEGIN
+      -- Update existing table if columns missing using correct column existence check
+      IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('dbo.hotwheels_collection') AND name = 'warna_3')
+        ALTER TABLE dbo.hotwheels_collection ADD warna_3 NVARCHAR(100);
+
+      IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('dbo.hotwheels_collection') AND name = 'penomoran_1')
+        ALTER TABLE dbo.hotwheels_collection ADD penomoran_1 NVARCHAR(50);
+
+      IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('dbo.hotwheels_collection') AND name = 'penomoran_2')
+        ALTER TABLE dbo.hotwheels_collection ADD penomoran_2 NVARCHAR(50);
+
+      IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('dbo.hotwheels_collection') AND name = 'penomoran_kategori_1')
+        ALTER TABLE dbo.hotwheels_collection ADD penomoran_kategori_1 NVARCHAR(50);
+
+      IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('dbo.hotwheels_collection') AND name = 'penomoran_kategori_2')
+        ALTER TABLE dbo.hotwheels_collection ADD penomoran_kategori_2 NVARCHAR(50);
+
+      IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('dbo.hotwheels_collection') AND name = 'jenis_kendaraan')
+        ALTER TABLE dbo.hotwheels_collection ADD jenis_kendaraan NVARCHAR(100);
     END
   `);
 }
@@ -161,11 +186,14 @@ app.post('/api/sync', authenticateToken, async (req, res) => {
         .input('lokasi_beli', sql.NVarChar(255), item.lokasi_beli ?? null)
         .input('harga_beli', sql.Decimal(18,2), hargaBeli)
         .input('nama_kendaraan', sql.NVarChar(255), item.nama_kendaraan ?? null)
-        .input('penomoran', sql.NVarChar(255), item.penomoran ?? null)
+        .input('penomoran_1', sql.NVarChar(50), item.penomoran_1 ?? null)
+        .input('penomoran_2', sql.NVarChar(50), item.penomoran_2 ?? null)
         .input('kategori_kendaraan', sql.NVarChar(255), item.kategori_kendaraan ?? null)
-        .input('penomoran_kategori', sql.NVarChar(255), item.penomoran_kategori ?? null)
+        .input('penomoran_kategori_1', sql.NVarChar(50), item.penomoran_kategori_1 ?? null)
+        .input('penomoran_kategori_2', sql.NVarChar(50), item.penomoran_kategori_2 ?? null)
         .input('kode_hotwheel', sql.NVarChar(255), item.kode_hotwheel ?? null)
         .input('kendaraan', sql.NVarChar(50), item.kendaraan ?? null)
+        .input('jenis_kendaraan', sql.NVarChar(100), item.jenis_kendaraan ?? null)
         .input('tahun_kendaraan', sql.Int, tahunKendaraan)
         .input('trackstar', sql.Bit, trackstar)
         .input('special_kategori', sql.NVarChar(255), item.special_kategori ?? null)
@@ -173,6 +201,7 @@ app.post('/api/sync', authenticateToken, async (req, res) => {
         .input('hotwheel_showdown', sql.Bit, hotwheelShowdown)
         .input('warna_1', sql.NVarChar(100), item.warna_1 ?? null)
         .input('warna_2', sql.NVarChar(100), item.warna_2 ?? null)
+        .input('warna_3', sql.NVarChar(100), item.warna_3 ?? null)
         .input('foto', sql.NVarChar(sql.MAX), item.foto ?? null)
         .query(`
           IF EXISTS (SELECT 1 FROM dbo.hotwheels_collection WHERE id = @id)
@@ -182,11 +211,14 @@ app.post('/api/sync', authenticateToken, async (req, res) => {
               lokasi_beli = @lokasi_beli,
               harga_beli = @harga_beli,
               nama_kendaraan = @nama_kendaraan,
-              penomoran = @penomoran,
+              penomoran_1 = @penomoran_1,
+              penomoran_2 = @penomoran_2,
               kategori_kendaraan = @kategori_kendaraan,
-              penomoran_kategori = @penomoran_kategori,
+              penomoran_kategori_1 = @penomoran_kategori_1,
+              penomoran_kategori_2 = @penomoran_kategori_2,
               kode_hotwheel = @kode_hotwheel,
               kendaraan = @kendaraan,
+              jenis_kendaraan = @jenis_kendaraan,
               tahun_kendaraan = @tahun_kendaraan,
               trackstar = @trackstar,
               special_kategori = @special_kategori,
@@ -194,21 +226,24 @@ app.post('/api/sync', authenticateToken, async (req, res) => {
               hotwheel_showdown = @hotwheel_showdown,
               warna_1 = @warna_1,
               warna_2 = @warna_2,
+              warna_3 = @warna_3,
               foto = @foto
             WHERE id = @id
           ELSE
             INSERT INTO dbo.hotwheels_collection (
               id, user_id, tgl_pembelian, lokasi_beli, harga_beli,
-              nama_kendaraan, penomoran, kategori_kendaraan, penomoran_kategori,
-              kode_hotwheel, kendaraan, tahun_kendaraan, trackstar,
+              nama_kendaraan, penomoran_1, penomoran_2, kategori_kendaraan,
+              penomoran_kategori_1, penomoran_kategori_2,
+              kode_hotwheel, kendaraan, jenis_kendaraan, tahun_kendaraan, trackstar,
               special_kategori, netflix, hotwheel_showdown,
-              warna_1, warna_2, foto
+              warna_1, warna_2, warna_3, foto
             ) VALUES (
               @id, @user_id, @tgl_pembelian, @lokasi_beli, @harga_beli,
-              @nama_kendaraan, @penomoran, @kategori_kendaraan, @penomoran_kategori,
-              @kode_hotwheel, @kendaraan, @tahun_kendaraan, @trackstar,
+              @nama_kendaraan, @penomoran_1, @penomoran_2, @kategori_kendaraan,
+              @penomoran_kategori_1, @penomoran_kategori_2,
+              @kode_hotwheel, @kendaraan, @jenis_kendaraan, @tahun_kendaraan, @trackstar,
               @special_kategori, @netflix, @hotwheel_showdown,
-              @warna_1, @warna_2, @foto
+              @warna_1, @warna_2, @warna_3, @foto
             );
         `);
     }
@@ -228,6 +263,29 @@ app.get('/api/collections', authenticateToken, async (req, res) => {
       .query('SELECT * FROM dbo.hotwheels_collection WHERE user_id = @user_id ORDER BY tgl_pembelian DESC');
 
     res.json(result.recordset);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ENDPOINT BARU: Ambil saran kata (suggestions) dari server
+app.get('/api/suggestions/:column', authenticateToken, async (req, res) => {
+  try {
+    const { column } = req.params;
+    // Daftar kolom yang diizinkan untuk menghindari SQL Injection
+    const allowedColumns = ['kategori_kendaraan', 'special_kategori', 'jenis_kendaraan', 'warna_1', 'warna_2', 'warna_3'];
+    if (!allowedColumns.includes(column)) {
+      return res.status(400).json({ message: 'Invalid column' });
+    }
+
+    const pool = await poolPromise;
+    const result = await pool.request()
+      .input('user_id', sql.Int, req.user.id)
+      .query(`SELECT DISTINCT ${column} FROM dbo.hotwheels_collection WHERE user_id = @user_id AND ${column} IS NOT NULL AND ${column} != ''`);
+
+    const suggestions = result.recordset.map(row => row[column]);
+    res.json(suggestions);
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err.message });

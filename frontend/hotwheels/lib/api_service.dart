@@ -126,4 +126,25 @@ class ApiService {
       throw Exception(body['message'] ?? 'Gagal sinkronisasi penghapusan');
     }
   }
+
+  // FITUR BARU: Ambil saran kata dari server
+  Future<List<String>> fetchSuggestions(String column) async {
+    final authToken = token;
+    if (authToken == null || authToken.isEmpty) return [];
+
+    try {
+      final response = await http.get(
+        Uri.parse('$_baseUrl/api/suggestions/$column'),
+        headers: {'Authorization': 'Bearer $authToken'},
+      );
+
+      if (response.statusCode == 200) {
+        final List<dynamic> body = jsonDecode(response.body);
+        return body.map((e) => e.toString()).toList();
+      }
+      return [];
+    } catch (_) {
+      return []; // Jika offline, diam saja (fallback ke lokal)
+    }
+  }
 }

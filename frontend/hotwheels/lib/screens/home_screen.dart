@@ -1,14 +1,15 @@
 ﻿import 'dart:convert';
 import 'package:excel/excel.dart' as excel_lib;
-import 'package:file_picker/file_picker.dart';
+// import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:syncfusion_flutter_xlsio/xlsio.dart' as xlsio;
 import 'package:image_picker/image_picker.dart';
 import 'package:image/image.dart' as img;
+// import 'package:intl/intl.dart';
 // ignore: avoid_web_libraries_in_flutter
-import 'dart:html' as html;
+// import 'dart:html' as html;
 
 import '../models/collection_item.dart';
 import '../providers.dart';
@@ -62,32 +63,22 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     ref.read(collectionListProvider.notifier).setSort(field, _sortAsc);
   }
 
-  // WIDGET UNTUK MENAMPILKAN GAMBAR SECARA AMAN DARI BASE64
   Widget _safeImage(String base64String, {double? width, double? height, BoxFit fit = BoxFit.cover}) {
     if (base64String.isEmpty) {
       return Icon(Icons.directions_car, size: width != null ? width * 0.5 : 50, color: Colors.grey);
     }
-
     try {
-      // Membersihkan karakter yang mungkin menyebabkan error decoding
       final cleanedString = base64String.trim().replaceAll('\n', '').replaceAll('\r', '');
+      String validBase64 = cleanedString;
+      if (validBase64.length % 4 != 0) {
+        validBase64 = validBase64.padRight(validBase64.length + (4 - validBase64.length % 4), '=');
+      }
       return Image.memory(
-        base64Decode(cleanedString),
+        base64Decode(validBase64),
         width: width,
         height: height,
         fit: fit,
-        errorBuilder: (context, error, stackTrace) {
-          debugPrint('Image decode error: $error');
-          return const Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(Icons.broken_image, color: Colors.red, size: 24),
-                Text('Corrupted', style: TextStyle(fontSize: 8, color: Colors.red)),
-              ],
-            ),
-          );
-        },
+        errorBuilder: (context, error, stackTrace) => const Icon(Icons.broken_image, color: Colors.red),
       );
     } catch (e) {
       return const Icon(Icons.broken_image, color: Colors.red);
@@ -97,38 +88,27 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   Future<void> _quickAddPhoto(CollectionItem item) async {
     final pickedFile = await ImagePicker().pickImage(
       source: ImageSource.gallery,
-      maxWidth: 400, // Kecilkan agar masuk limit Excel
+      maxWidth: 400,
       maxHeight: 400,
-      imageQuality: 40, // Kompresi lebih tinggi
+      imageQuality: 40,
     );
     if (pickedFile == null) return;
-
     final bytes = await pickedFile.readAsBytes();
     final decoded = img.decodeImage(bytes);
     if (decoded == null) return;
-
-    // Resize agresif untuk Web & Excel safety
     final resized = img.copyResize(decoded, width: 250);
     final jpeg = img.encodeJpg(resized, quality: 40);
     final base64String = base64Encode(jpeg);
-
     final updatedItem = item.copyWith(foto: base64String, isSynced: 0);
     await ref.read(databaseHelperProvider).updateItem(updatedItem);
     ref.read(collectionListProvider.notifier).loadInitial();
-
-    if (mounted) {
+    if (mounted)
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Foto berhasil ditambahkan!')));
-    }
   }
 
   Future<void> _exportToExcelWithImages() async {
     try {
       final state = ref.read(collectionListProvider);
-      if (state.items.isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Tidak ada data untuk diexport')));
-        return;
-      }
-
       showDialog(
         context: context,
         barrierDismissible: false,
@@ -137,11 +117,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             margin: EdgeInsets.all(24),
             child: Column(
               mainAxisSize: MainAxisSize.min,
-              children: [
-                CircularProgressIndicator(),
-                SizedBox(height: 16),
-                Text("Menghasilkan Excel Pro (Safe Mode)..."),
-              ],
+              children: [CircularProgressIndicator(), SizedBox(height: 16), Text("Menghasilkan Excel Pro...")],
             ),
           ),
         ),
@@ -157,11 +133,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         'Tgl Beli',
         'Lokasi',
         'Harga',
-        'Penomoran',
+        'Penomoran 1',
+        'Penomoran 2',
         'Kategori',
-        'Penomoran Kat',
+        'Penomoran Kat 1',
+        'Penomoran Kat 2',
         'Kode',
         'Kendaraan',
+        'Jenis Kendaraan',
         'Tahun',
         'Trackstar',
         'Special',
@@ -169,6 +148,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         'Showdown',
         'Warna 1',
         'Warna 2',
+        'Warna 3',
         'FotoBase64',
       ];
 
@@ -178,8 +158,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         cell.cellStyle.bold = true;
         cell.cellStyle.backColor = '#1E88E5';
         cell.cellStyle.fontColor = '#FFFFFF';
-        cell.cellStyle.vAlign = xlsio.VAlignType.center;
-        cell.cellStyle.hAlign = xlsio.HAlignType.center;
       }
 
       for (int i = 0; i < state.items.length; i++) {
@@ -192,125 +170,105 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         sheet.getRangeByIndex(row, 3).setText(item.tglPembelian);
         sheet.getRangeByIndex(row, 4).setText(item.lokasiBeli);
         sheet.getRangeByIndex(row, 5).setNumber(item.hargaBeli);
-        sheet.getRangeByIndex(row, 6).setText(item.penomoran);
-        sheet.getRangeByIndex(row, 7).setText(item.kategoriKendaraan);
-        sheet.getRangeByIndex(row, 8).setText(item.penomoranKategori);
-        sheet.getRangeByIndex(row, 9).setText(item.kodeHotwheel);
-        sheet.getRangeByIndex(row, 10).setText(item.kendaraan);
-        sheet.getRangeByIndex(row, 11).setText(item.tahunKendaraan.toString());
-        sheet.getRangeByIndex(row, 12).setText(item.trackstar ? '1' : '0');
-        sheet.getRangeByIndex(row, 13).setText(item.specialKategori);
-        sheet.getRangeByIndex(row, 14).setText(item.netflix ? '1' : '0');
-        sheet.getRangeByIndex(row, 15).setText(item.hotwheelShowdown ? '1' : '0');
-        sheet.getRangeByIndex(row, 16).setText(item.warna1);
-        sheet.getRangeByIndex(row, 17).setText(item.warna2 ?? '');
+        sheet.getRangeByIndex(row, 6).setText(item.penomoran1);
+        sheet.getRangeByIndex(row, 7).setText(item.penomoran2);
+        sheet.getRangeByIndex(row, 8).setText(item.kategoriKendaraan);
+        sheet.getRangeByIndex(row, 9).setText(item.penomoranKategori1);
+        sheet.getRangeByIndex(row, 10).setText(item.penomoranKategori2);
+        sheet.getRangeByIndex(row, 11).setText(item.kodeHotwheel);
+        sheet.getRangeByIndex(row, 12).setText(item.kendaraan);
+        sheet.getRangeByIndex(row, 13).setText(item.jenisKendaraan);
+        sheet.getRangeByIndex(row, 14).setText(item.tahunKendaraan.toString());
+        sheet.getRangeByIndex(row, 15).setText(item.trackstar ? '1' : '0');
+        sheet.getRangeByIndex(row, 16).setText(item.specialKategori);
+        sheet.getRangeByIndex(row, 17).setText(item.netflix ? '1' : '0');
+        sheet.getRangeByIndex(row, 18).setText(item.hotwheelShowdown ? '1' : '0');
+        sheet.getRangeByIndex(row, 19).setText(item.warna1);
+        sheet.getRangeByIndex(row, 20).setText(item.warna2 ?? '');
+        sheet.getRangeByIndex(row, 21).setText(item.warna3 ?? '');
 
-        // PROTEKSI LIMIT EXCEL (32767 chars)
         String photoData = item.foto;
-        if (photoData.length > 32700) {
-          photoData = photoData.substring(0, 32700);
-        }
-        sheet.getRangeByIndex(row, 18).setText(photoData);
+        if (photoData.length > 32700) photoData = photoData.substring(0, 32700);
+        sheet.getRangeByIndex(row, 22).setText(photoData);
 
         if (item.foto.isNotEmpty) {
           try {
-            // Hanya gambar yang valid yang disisipkan secara visual
             final List<int> imageBytes = base64Decode(item.foto);
-            final xlsio.Picture picture = sheet.pictures.addStream(row, 18, imageBytes);
+            final xlsio.Picture picture = sheet.pictures.addStream(row, 22, imageBytes);
             picture.lastRow = row;
-            picture.lastColumn = 18;
+            picture.lastColumn = 22;
             picture.height = 95;
             picture.width = 95;
-          } catch (e) {
-            debugPrint('Skip visual image for row $row due to decode error');
-          }
+          } catch (_) {}
         }
       }
 
-      sheet.setColumnWidthInPixels(18, 110);
-      sheet.getRangeByName('A1:Q1').autoFitColumns();
-
+      sheet.setColumnWidthInPixels(22, 110);
+      sheet.getRangeByName('A1:U1').autoFitColumns();
       final List<int> bytes = workbook.saveAsStream();
       workbook.dispose();
 
-      if (kIsWeb) {
-        final blob = html.Blob([bytes]);
-        final url = html.Url.createObjectUrlFromBlob(blob);
-        final anchor = html.AnchorElement(href: url)
-          ..setAttribute("download", "HW_Gallery_Export_Stable.xlsx")
-          ..click();
-        html.Url.revokeObjectUrl(url);
-      }
-
+      // if (kIsWeb) {
+      //   final blob = html.Blob([bytes]);
+      //   final url = html.Url.createObjectUrlFromBlob(blob);
+      //   final anchor = html.AnchorElement(href: url)
+      //     ..setAttribute("download", "HW_Gallery_Pro_Export.xlsx")
+      //     ..click();
+      //   html.Url.revokeObjectUrl(url);
+      // }
       if (mounted) Navigator.pop(context);
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Export Berhasil!')));
     } catch (e) {
       if (mounted) Navigator.pop(context);
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Export Gagal: $e')));
     }
   }
 
-  String _fixBase64Padding(String base64) {
-    if (base64.isEmpty) return "";
-    final cleaned = base64.trim().replaceAll('\n', '').replaceAll('\r', '');
-    int mod = cleaned.length % 4;
-    if (mod > 0) {
-      return cleaned + ('=' * (4 - mod));
-    }
-    return cleaned;
-  }
-
-  Future<void> _importFromExcel() async {
-    try {
-      final result = await FilePicker.pickFiles(type: FileType.custom, allowedExtensions: ['xlsx'], withData: true);
-      if (result == null || result.files.isEmpty) return;
-
-      final bytes = result.files.single.bytes;
-      if (bytes == null) throw Exception("File bytes null");
-
-      final excel = excel_lib.Excel.decodeBytes(bytes);
-      final sheet = excel.tables.values.first;
-
-      final List<CollectionItem> importedItems = [];
-      for (var i = 1; i < sheet.maxRows; i++) {
-        final row = sheet.rows[i];
-        if (row.length < 2) continue;
-
-        String rawFoto = row.length > 17 ? (row[17]?.value?.toString() ?? '') : '';
-        String safeFoto = _fixBase64Padding(rawFoto);
-
-        importedItems.add(
-          CollectionItem(
-            id: row[0]?.value?.toString() ?? '',
-            namaKendaraan: row[1]?.value?.toString() ?? '',
-            tglPembelian: row[2]?.value?.toString() ?? '',
-            lokasiBeli: row[3]?.value?.toString() ?? '',
-            hargaBeli: double.tryParse(row[4]?.value?.toString() ?? '0') ?? 0.0,
-            penomoran: row[5]?.value?.toString() ?? '',
-            kategoriKendaraan: row[6]?.value?.toString() ?? '',
-            penomoranKategori: row[7]?.value?.toString() ?? '',
-            kodeHotwheel: row[8]?.value?.toString() ?? '',
-            kendaraan: row[9]?.value?.toString() ?? 'Mobil',
-            tahunKendaraan: int.tryParse(row[10]?.value?.toString() ?? '0') ?? 0,
-            trackstar: row[11]?.value?.toString() == '1',
-            specialKategori: row[12]?.value?.toString() ?? '',
-            netflix: row[13]?.value?.toString() == '1',
-            hotwheelShowdown: row[14]?.value.toString() == '1',
-            warna1: row[15]?.value?.toString() ?? '',
-            warna2: row[16]?.value?.toString(),
-            foto: safeFoto,
-            isSynced: 0,
-          ),
-        );
-      }
-
-      if (mounted) {
-        Navigator.push(context, MaterialPageRoute(builder: (_) => ImportPreviewScreen(previewItems: importedItems)));
-      }
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Import Gagal: $e')));
-    }
-  }
+  // Future<void> _importFromExcel() async {
+  //   try {
+  //     final result = await FilePicker.pickFiles(type: FileType.custom, allowedExtensions: ['xlsx'], withData: true);
+  //     if (result == null || result.files.isEmpty) return;
+  //     final bytes = result.files.single.bytes;
+  //     if (bytes == null) return;
+  //     final excel = excel_lib.Excel.decodeBytes(bytes);
+  //     final sheet = excel.tables.values.first;
+  //     final List<CollectionItem> importedItems = [];
+  //     for (var i = 1; i < sheet.maxRows; i++) {
+  //       final row = sheet.rows[i];
+  //       if (row.length < 2) continue;
+  //       importedItems.add(
+  //         CollectionItem(
+  //           id: row[0]?.value?.toString() ?? '',
+  //           namaKendaraan: row[1]?.value?.toString() ?? '',
+  //           tglPembelian: row[2]?.value?.toString() ?? '',
+  //           lokasiBeli: row[3]?.value?.toString() ?? '',
+  //           hargaBeli: double.tryParse(row[4]?.value?.toString() ?? '0') ?? 0.0,
+  //           penomoran1: row[5]?.value?.toString() ?? '',
+  //           penomoran2: row[6]?.value?.toString() ?? '',
+  //           kategoriKendaraan: row[7]?.value?.toString() ?? '',
+  //           penomoranKategori1: row[8]?.value?.toString() ?? '',
+  //           penomoranKategori2: row[9]?.value?.toString() ?? '',
+  //           kodeHotwheel: row[10]?.value?.toString() ?? '',
+  //           kendaraan: row[11]?.value?.toString() ?? 'Mobil',
+  //           jenisKendaraan: row[12]?.value?.toString() ?? '',
+  //           tahunKendaraan: int.tryParse(row[13]?.value?.toString() ?? '0') ?? 0,
+  //           trackstar: row[14]?.value?.toString() == '1',
+  //           specialKategori: row[15]?.value?.toString() ?? '',
+  //           netflix: row[16]?.value?.toString() == '1',
+  //           hotwheelShowdown: row[17]?.value?.toString() == '1',
+  //           warna1: row[18]?.value?.toString() ?? '',
+  //           warna2: row[19]?.value?.toString(),
+  //           warna3: row[20]?.value?.toString(),
+  //           foto: row.length > 21 ? (row[21]?.value?.toString() ?? '') : '',
+  //           isSynced: 0,
+  //         ),
+  //       );
+  //     }
+  //     if (mounted)
+  //       Navigator.push(context, MaterialPageRoute(builder: (_) => ImportPreviewScreen(previewItems: importedItems)));
+  //   } catch (e) {
+  //     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Import Gagal: $e')));
+  //   }
+  // }
 
   @override
   Widget build(BuildContext context) {
@@ -417,7 +375,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           tooltip: 'Export',
           onPressed: _exportToExcelWithImages,
         ),
-        IconButton(icon: const Icon(Icons.file_upload_outlined), tooltip: 'Import', onPressed: _importFromExcel),
+        // IconButton(icon: const Icon(Icons.file_upload_outlined), tooltip: 'Import', onPressed: _importFromExcel),
         IconButton(
           icon: _isSyncing
               ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
@@ -437,7 +395,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     final state = ref.watch(collectionListProvider);
     final synced = state.items.where((i) => i.isSynced == 1).length;
     final local = state.items.where((i) => i.isSynced == 0).length;
-
     return Padding(
       padding: const EdgeInsets.all(16),
       child: Wrap(
@@ -459,7 +416,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       decoration: BoxDecoration(
         color: color.withOpacity(0.1),
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: color.withValues(alpha: 0.2)),
+        border: Border.all(color: color.withOpacity(0.2)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
