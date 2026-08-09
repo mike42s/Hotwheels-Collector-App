@@ -26,20 +26,59 @@ class _ImportPreviewScreenState extends ConsumerState<ImportPreviewScreen> {
   }
 
   void _editItem(int index) async {
-    final result = await Navigator.push<bool>(
+    // Navigasi ke CollectionForm dengan mode isStaging = true
+    final result = await Navigator.push<dynamic>(
       context,
-      MaterialPageRoute(builder: (_) => CollectionForm(item: _items[index])),
+      MaterialPageRoute(
+        builder: (_) => CollectionForm(
+          item: _items[index],
+          isStaging: true, // Gunakan mode staging agar tidak langsung simpan ke DB
+        ),
+      ),
     );
-    // Note: Since this is preview mode, we don't save to DB yet.
-    // In a real staging scenario, we might want to update the local _items list.
-    // For now, if the user edits and saves, it saves to DB.
-    // To make it better, we'll just allow the user to see the list and
-    // maybe delete or add photo directly here.
+
+    if (result == null) {
+      // Jika result null, artinya item dihapus dari dalam form
+      setState(() {
+        _items.removeAt(index);
+      });
+    } else if (result is CollectionItem) {
+      // Jika result adalah CollectionItem, update data di list preview
+      setState(() {
+        _items[index] = result;
+      });
+    }
   }
 
-  Future<void> _changePhoto(int index) async {
+  Future<void> _showImagePickerSource(int index) async {
+    final source = await showModalBottomSheet<ImageSource>(
+      context: context,
+      builder: (context) => SafeArea(
+        child: Wrap(
+          children: [
+            ListTile(
+              leading: const Icon(Icons.camera_alt),
+              title: const Text('Kamera'),
+              onTap: () => Navigator.pop(context, ImageSource.camera),
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_library),
+              title: const Text('Galeri'),
+              onTap: () => Navigator.pop(context, ImageSource.gallery),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    if (source != null) {
+      _changePhoto(index, source);
+    }
+  }
+
+  Future<void> _changePhoto(int index, ImageSource source) async {
     final pickedFile = await ImagePicker().pickImage(
-      source: ImageSource.gallery,
+      source: source,
       maxWidth: 400,
       maxHeight: 400,
       imageQuality: 40,
@@ -65,14 +104,12 @@ class _ImportPreviewScreenState extends ConsumerState<ImportPreviewScreen> {
     });
   }
 
-  // WIDGET UNTUK MENAMPILKAN GAMBAR SECARA AMAN (SILENT ERROR)
   Widget _safePreviewImage(String base64String) {
     if (base64String.isEmpty) {
       return const Icon(Icons.directions_car, color: Colors.grey);
     }
     try {
       final cleaned = base64String.trim().replaceAll('\n', '').replaceAll('\r', '');
-      // Validasi kelipatan 4 untuk Base64
       String validBase64 = cleaned;
       if (validBase64.length % 4 != 0) {
         validBase64 = validBase64.padRight(validBase64.length + (4 - validBase64.length % 4), '=');
@@ -93,10 +130,10 @@ class _ImportPreviewScreenState extends ConsumerState<ImportPreviewScreen> {
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Konfirmasi Import'),
-        content: Text('Anda akan mengimpor ${_items.length} item. Hapus data lokal lama?'),
+        title: const Text('KONFIRMASI IMPORT'),
+        content: Text('ANDA AKAN MENGIMPOR ${_items.length} ITEM. HAPUS DATA LOKAL LAMA?'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Batal')),
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('BATAL')),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
             child: const Text(
@@ -119,17 +156,29 @@ class _ImportPreviewScreenState extends ConsumerState<ImportPreviewScreen> {
 
       try {
         await ref.read(collectionListProvider.notifier).clearAll();
-        await ref.read(collectionListProvider.notifier).importItems(_items);
+        final processedItems = _items.map((item) => item.copyWith(
+          namaKendaraan: item.namaKendaraan.toUpperCase(),
+          lokasiBeli: item.lokasiBeli.toUpperCase(),
+          kategoriKendaraan: item.kategoriKendaraan.toUpperCase(),
+          jenisKendaraan: item.jenisKendaraan.toUpperCase(),
+          specialKategori: item.specialKategori.toUpperCase(),
+          warna1: item.warna1.toUpperCase(),
+          warna2: item.warna2?.toUpperCase(),
+          warna3: item.warna3?.toUpperCase(),
+          kodeHotwheel: item.kodeHotwheel.toUpperCase(),
+        )).toList();
+
+        await ref.read(collectionListProvider.notifier).importItems(processedItems);
 
         if (mounted) {
           Navigator.pop(context); // Close loading
           Navigator.pop(context); // Back to Home
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Import Berhasil!')));
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('IMPORT BERHASIL!')));
         }
       } catch (e) {
         if (mounted) {
           Navigator.pop(context);
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Gagal: $e')));
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('GAGAL: $e')));
         }
       }
     }
@@ -139,7 +188,7 @@ class _ImportPreviewScreenState extends ConsumerState<ImportPreviewScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Review Data Excel'),
+        title: const Text('REVIEW DATA EXCEL'),
         actions: [
           ElevatedButton.icon(
             onPressed: _items.isEmpty ? null : _handleConfirmImport,
@@ -166,8 +215,8 @@ class _ImportPreviewScreenState extends ConsumerState<ImportPreviewScreen> {
                 const SizedBox(width: 12),
                 Expanded(
                   child: Text(
-                    'Ditemukan ${_items.length} item. Anda bisa mengubah foto atau menghapus baris yang salah sebelum submit.',
-                    style: const TextStyle(fontWeight: FontWeight.w500),
+                    'DITEMUKAN ${_items.length} ITEM. ANDA BISA MENGUBAH FOTO ATAU MENGHAPUS BARIS YANG SALAH SEBELUM SUBMIT.',
+                    style: const TextStyle(fontWeight: FontWeight.bold),
                   ),
                 ),
               ],
@@ -182,10 +231,9 @@ class _ImportPreviewScreenState extends ConsumerState<ImportPreviewScreen> {
                   margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                   child: ListTile(
                     leading: GestureDetector(
-                      onTap: () => _changePhoto(index),
+                      onTap: () => _showImagePickerSource(index),
                       child: Container(
-                        width: 60,
-                        height: 60,
+                        width: 60, height: 60,
                         decoration: BoxDecoration(
                           color: Colors.grey[200],
                           borderRadius: BorderRadius.circular(8),
@@ -196,26 +244,34 @@ class _ImportPreviewScreenState extends ConsumerState<ImportPreviewScreen> {
                           children: [
                             _safePreviewImage(item.foto),
                             Positioned(
-                              bottom: 0,
-                              right: 0,
+                              bottom: 0, right: 0,
                               child: Container(
                                 padding: const EdgeInsets.all(2),
                                 decoration: const BoxDecoration(color: Colors.blue, shape: BoxShape.circle),
                                 child: const Icon(Icons.add_a_photo, size: 12, color: Colors.white),
                               ),
-                            ),
+                            )
                           ],
                         ),
                       ),
                     ),
                     title: Text(
-                      item.namaKendaraan.isEmpty ? '(Tanpa Nama)' : item.namaKendaraan,
-                      style: const TextStyle(fontWeight: FontWeight.bold),
+                      item.namaKendaraan.isEmpty ? '(TANPA NAMA)' : item.namaKendaraan.toUpperCase(), 
+                      style: const TextStyle(fontWeight: FontWeight.bold)
                     ),
-                    subtitle: Text('${item.kategoriKendaraan} • ${item.warna1}\n${item.kodeHotwheel}'),
-                    trailing: IconButton(
-                      icon: const Icon(Icons.delete_outline, color: Colors.red),
-                      onPressed: () => _removeItem(index),
+                    subtitle: Text('${item.kategoriKendaraan.toUpperCase()} • ${item.warna1.toUpperCase()}\n${item.kodeHotwheel.toUpperCase()}'),
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        IconButton(
+                          icon: const Icon(Icons.edit_note, color: Colors.blue),
+                          onPressed: () => _editItem(index),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.delete_outline, color: Colors.red),
+                          onPressed: () => _removeItem(index),
+                        ),
+                      ],
                     ),
                     isThreeLine: true,
                   ),

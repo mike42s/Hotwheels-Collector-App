@@ -15,7 +15,9 @@ import '../providers.dart';
 
 class CollectionForm extends ConsumerStatefulWidget {
   final CollectionItem? item;
-  const CollectionForm({super.key, this.item});
+  final bool isStaging; // Mode preview/staging: tidak simpan ke DB, tapi return item
+
+  const CollectionForm({super.key, this.item, this.isStaging = false});
 
   @override
   ConsumerState<CollectionForm> createState() => _CollectionFormState();
@@ -41,7 +43,6 @@ class _CollectionFormState extends ConsumerState<CollectionForm> {
   late TextEditingController _warna3Controller;
   late TextEditingController _jenisKendaraanController;
 
-  // FocusNodes for Autocomplete fields
   final FocusNode _warna1Focus = FocusNode();
   final FocusNode _warna2Focus = FocusNode();
   final FocusNode _warna3Focus = FocusNode();
@@ -119,20 +120,55 @@ class _CollectionFormState extends ConsumerState<CollectionForm> {
     super.dispose();
   }
 
-  Future<void> _pickImage(ImageSource source) async {
-    final pickedFile = await ImagePicker().pickImage(
-      source: source, 
-      maxWidth: 400, 
-      maxHeight: 400, 
-      imageQuality: 40
+  Future<void> _showImagePickerSource() async {
+    final source = await showModalBottomSheet<ImageSource>(
+      context: context,
+      builder: (context) => SafeArea(
+        child: Wrap(
+          children: [
+            ListTile(
+              leading: const Icon(Icons.camera_alt),
+              title: const Text('Kamera'),
+              onTap: () => Navigator.pop(context, ImageSource.camera),
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_library),
+              title: const Text('Galeri'),
+              onTap: () => Navigator.pop(context, ImageSource.gallery),
+            ),
+          ],
+        ),
+      ),
     );
-    if (pickedFile == null) return;
-    final bytes = await pickedFile.readAsBytes();
-    final decoded = img.decodeImage(bytes);
-    if (decoded == null) return;
-    final resized = img.copyResize(decoded, width: 250);
-    final jpeg = img.encodeJpg(resized, quality: 40);
-    setState(() => _fotoBase64 = base64Encode(jpeg));
+
+    if (source != null) {
+      _pickImage(source);
+    }
+  }
+
+  Future<void> _pickImage(ImageSource source) async {
+    try {
+      final pickedFile = await ImagePicker().pickImage(
+        source: source, 
+        maxWidth: 400, 
+        maxHeight: 400, 
+        imageQuality: 40
+      );
+      if (pickedFile == null) return;
+      final bytes = await pickedFile.readAsBytes();
+      final decoded = img.decodeImage(bytes);
+      if (decoded == null) return;
+      final resized = img.copyResize(decoded, width: 250);
+      final jpeg = img.encodeJpg(resized, quality: 40);
+      setState(() => _fotoBase64 = base64Encode(jpeg));
+    } catch (e) {
+      debugPrint('Error picking image: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Gagal mengambil gambar: $e'))
+        );
+      }
+    }
   }
 
   void _randomizeFields() {
@@ -170,6 +206,13 @@ class _CollectionFormState extends ConsumerState<CollectionForm> {
 
   Future<void> _deleteData() async {
     if (widget.item == null) return;
+    
+    // Jika dalam mode staging, cukup return null (hapus dari list preview)
+    if (widget.isStaging) {
+      Navigator.pop(context, null); // Return null interpreted as delete in staging
+      return;
+    }
+
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -230,8 +273,16 @@ class _CollectionFormState extends ConsumerState<CollectionForm> {
         foto: _fotoBase64,
         isSynced: 0,
       );
+
+      // JIKA MODE STAGING, JANGAN SIMPAN KE DATABASE
+      if (widget.isStaging) {
+        if (mounted) Navigator.pop(context, item); // Return item baru ke Preview
+        return;
+      }
+
       if (widget.item == null) { await DatabaseHelper.instance.insertItem(item); }
       else { await DatabaseHelper.instance.updateItem(item); }
+      
       if (mounted) Navigator.pop(context, true);
     } catch (e) { 
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Gagal: $e'))); 
@@ -297,7 +348,7 @@ class _CollectionFormState extends ConsumerState<CollectionForm> {
   Widget _buildPhotoPicker() {
     return Center(
       child: GestureDetector(
-        onTap: () => _pickImage(ImageSource.gallery),
+        onTap: _showImagePickerSource,
         child: Container(
           width: 250, height: 250,
           decoration: BoxDecoration(
@@ -493,7 +544,7 @@ class _CollectionFormState extends ConsumerState<CollectionForm> {
             if (textEditingValue.text.isEmpty) {
               return suggestions;
             }
-            
+
             return suggestions.where((String option) {
               return option.toUpperCase().contains(textEditingValue.text.toUpperCase());
             });

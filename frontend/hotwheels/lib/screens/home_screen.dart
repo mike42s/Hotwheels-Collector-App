@@ -1,15 +1,18 @@
 ﻿import 'dart:convert';
+import 'dart:io';
 import 'package:excel/excel.dart' as excel_lib;
-// import 'package:file_picker/file_picker.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:syncfusion_flutter_xlsio/xlsio.dart' as xlsio;
 import 'package:image_picker/image_picker.dart';
 import 'package:image/image.dart' as img;
-// import 'package:intl/intl.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:permission_handler/permission_handler.dart';
+import 'package:open_filex/open_filex.dart';
 // ignore: avoid_web_libraries_in_flutter
-// import 'dart:html' as html;
+import 'dart:html' as html;
 
 import '../models/collection_item.dart';
 import '../providers.dart';
@@ -86,29 +89,55 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   }
 
   Future<void> _quickAddPhoto(CollectionItem item) async {
-    final pickedFile = await ImagePicker().pickImage(
-      source: ImageSource.gallery,
-      maxWidth: 400,
-      maxHeight: 400,
-      imageQuality: 40,
+    final source = await showModalBottomSheet<ImageSource>(
+      context: context,
+      builder: (context) => SafeArea(
+        child: Wrap(
+          children: [
+            ListTile(
+              leading: const Icon(Icons.camera_alt),
+              title: const Text('Kamera'),
+              onTap: () => Navigator.pop(context, ImageSource.camera),
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_library),
+              title: const Text('Galeri'),
+              onTap: () => Navigator.pop(context, ImageSource.gallery),
+            ),
+          ],
+        ),
+      ),
     );
+
+    if (source == null) return;
+
+    final pickedFile = await ImagePicker().pickImage(source: source, maxWidth: 400, maxHeight: 400, imageQuality: 40);
     if (pickedFile == null) return;
+
     final bytes = await pickedFile.readAsBytes();
     final decoded = img.decodeImage(bytes);
     if (decoded == null) return;
     final resized = img.copyResize(decoded, width: 250);
     final jpeg = img.encodeJpg(resized, quality: 40);
     final base64String = base64Encode(jpeg);
+
     final updatedItem = item.copyWith(foto: base64String, isSynced: 0);
     await ref.read(databaseHelperProvider).updateItem(updatedItem);
     ref.read(collectionListProvider.notifier).loadInitial();
-    if (mounted)
+
+    if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Foto berhasil ditambahkan!')));
+    }
   }
 
   Future<void> _exportToExcelWithImages() async {
     try {
       final state = ref.read(collectionListProvider);
+      if (state.items.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Tidak ada data untuk diexport')));
+        return;
+      }
+
       showDialog(
         context: context,
         barrierDismissible: false,
@@ -158,6 +187,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         cell.cellStyle.bold = true;
         cell.cellStyle.backColor = '#1E88E5';
         cell.cellStyle.fontColor = '#FFFFFF';
+        cell.cellStyle.vAlign = xlsio.VAlignType.center;
+        cell.cellStyle.hAlign = xlsio.HAlignType.center;
       }
 
       for (int i = 0; i < state.items.length; i++) {
@@ -188,7 +219,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         sheet.getRangeByIndex(row, 21).setText(item.warna3 ?? '');
 
         String photoData = item.foto;
-        if (photoData.length > 32700) photoData = photoData.substring(0, 32700);
+        if (photoData.length > 32000) photoData = photoData.substring(0, 32000);
         sheet.getRangeByIndex(row, 22).setText(photoData);
 
         if (item.foto.isNotEmpty) {
@@ -208,14 +239,49 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       final List<int> bytes = workbook.saveAsStream();
       workbook.dispose();
 
-      // if (kIsWeb) {
-      //   final blob = html.Blob([bytes]);
-      //   final url = html.Url.createObjectUrlFromBlob(blob);
-      //   final anchor = html.AnchorElement(href: url)
-      //     ..setAttribute("download", "HW_Gallery_Pro_Export.xlsx")
-      //     ..click();
-      //   html.Url.revokeObjectUrl(url);
-      // }
+      if (kIsWeb) {
+        final blob = html.Blob([bytes]);
+        final url = html.Url.createObjectUrlFromBlob(blob);
+        final anchor = html.AnchorElement(href: url)
+          ..setAttribute("download", "HW_Gallery_Pro_Export.xlsx")
+          ..click();
+        html.Url.revokeObjectUrl(url);
+      } else {
+        // MOBILE EXPORT LOGIC
+        if (Platform.isAndroid) {
+          await Permission.storage.request();
+          await Permission.manageExternalStorage.request();
+        }
+
+        Directory? directory;
+        if (Platform.isAndroid) {
+          directory = Directory('/storage/emulated/0/Download');
+          if (!await directory.exists()) {
+            directory = await getExternalStorageDirectory();
+          }
+        } else {
+          directory = await getApplicationDocumentsDirectory();
+        }
+
+        if (directory == null) throw Exception("Direktori tidak ditemukan");
+
+        final String fileName = "HW_Export_${DateTime.now().millisecondsSinceEpoch}.xlsx";
+        final String path = "${directory.path}/$fileName";
+        final File file = File(path);
+        await file.writeAsBytes(bytes, flush: true);
+
+        if (mounted) {
+          Navigator.pop(context);
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('File disimpan di: $fileName'),
+              action: SnackBarAction(label: 'BUKA', onPressed: () => OpenFilex.open(path)),
+              duration: const Duration(seconds: 10),
+            ),
+          );
+        }
+        return;
+      }
       if (mounted) Navigator.pop(context);
     } catch (e) {
       if (mounted) Navigator.pop(context);
@@ -223,52 +289,97 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     }
   }
 
-  // Future<void> _importFromExcel() async {
-  //   try {
-  //     final result = await FilePicker.pickFiles(type: FileType.custom, allowedExtensions: ['xlsx'], withData: true);
-  //     if (result == null || result.files.isEmpty) return;
-  //     final bytes = result.files.single.bytes;
-  //     if (bytes == null) return;
-  //     final excel = excel_lib.Excel.decodeBytes(bytes);
-  //     final sheet = excel.tables.values.first;
-  //     final List<CollectionItem> importedItems = [];
-  //     for (var i = 1; i < sheet.maxRows; i++) {
-  //       final row = sheet.rows[i];
-  //       if (row.length < 2) continue;
-  //       importedItems.add(
-  //         CollectionItem(
-  //           id: row[0]?.value?.toString() ?? '',
-  //           namaKendaraan: row[1]?.value?.toString() ?? '',
-  //           tglPembelian: row[2]?.value?.toString() ?? '',
-  //           lokasiBeli: row[3]?.value?.toString() ?? '',
-  //           hargaBeli: double.tryParse(row[4]?.value?.toString() ?? '0') ?? 0.0,
-  //           penomoran1: row[5]?.value?.toString() ?? '',
-  //           penomoran2: row[6]?.value?.toString() ?? '',
-  //           kategoriKendaraan: row[7]?.value?.toString() ?? '',
-  //           penomoranKategori1: row[8]?.value?.toString() ?? '',
-  //           penomoranKategori2: row[9]?.value?.toString() ?? '',
-  //           kodeHotwheel: row[10]?.value?.toString() ?? '',
-  //           kendaraan: row[11]?.value?.toString() ?? 'Mobil',
-  //           jenisKendaraan: row[12]?.value?.toString() ?? '',
-  //           tahunKendaraan: int.tryParse(row[13]?.value?.toString() ?? '0') ?? 0,
-  //           trackstar: row[14]?.value?.toString() == '1',
-  //           specialKategori: row[15]?.value?.toString() ?? '',
-  //           netflix: row[16]?.value?.toString() == '1',
-  //           hotwheelShowdown: row[17]?.value?.toString() == '1',
-  //           warna1: row[18]?.value?.toString() ?? '',
-  //           warna2: row[19]?.value?.toString(),
-  //           warna3: row[20]?.value?.toString(),
-  //           foto: row.length > 21 ? (row[21]?.value?.toString() ?? '') : '',
-  //           isSynced: 0,
-  //         ),
-  //       );
-  //     }
-  //     if (mounted)
-  //       Navigator.push(context, MaterialPageRoute(builder: (_) => ImportPreviewScreen(previewItems: importedItems)));
-  //   } catch (e) {
-  //     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Import Gagal: $e')));
-  //   }
-  // }
+  String _cellValue(dynamic cell) {
+    return cell?.value?.toString() ?? '';
+  }
+
+  Future<void> _importFromExcel() async {
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['xlsx'],
+        withData: true,
+      );
+
+      if (result == null) return;
+
+      final bytes = result.files.single.bytes;
+      if (bytes == null) {
+        throw Exception("File bytes is null");
+      }
+
+      final excel = excel_lib.Excel.decodeBytes(bytes);
+
+      if (excel.tables.isEmpty) {
+        throw Exception("Sheet tidak ditemukan");
+      }
+
+      final sheet = excel.tables.values.first;
+
+      final List<CollectionItem> importedItems = [];
+
+      for (int i = 1; i < sheet.maxRows; i++) {
+        try {
+          final row = sheet.rows[i];
+
+          debugPrint("========== ROW $i ==========");
+          debugPrint("Length : ${row.length}");
+
+          final item = CollectionItem(
+            id: row.length > 0 ? row[0]?.value.toString() ?? '' : '',
+            namaKendaraan: row.length > 1 ? row[1]?.value.toString() ?? '' : '',
+            tglPembelian: row.length > 2 ? row[2]?.value.toString() ?? '' : '',
+            lokasiBeli: row.length > 3 ? row[3]?.value.toString() ?? '' : '',
+            hargaBeli: row.length > 4 ? double.tryParse(row[4]?.value.toString() ?? '0') ?? 0 : 0,
+            penomoran1: row.length > 5 ? row[5]?.value.toString() ?? '' : '',
+            penomoran2: row.length > 6 ? row[6]?.value.toString() ?? '' : '',
+            kategoriKendaraan: row.length > 7 ? row[7]?.value.toString() ?? '' : '',
+            penomoranKategori1: row.length > 8 ? row[8]?.value.toString() ?? '' : '',
+            penomoranKategori2: row.length > 9 ? row[9]?.value.toString() ?? '' : '',
+            kodeHotwheel: row.length > 10 ? row[10]?.value.toString() ?? '' : '',
+            kendaraan: row.length > 11 ? row[11]?.value.toString() ?? 'Mobil' : 'Mobil',
+            jenisKendaraan: row.length > 12 ? row[12]?.value.toString() ?? '' : '',
+            tahunKendaraan: row.length > 13 ? int.tryParse(row[13]?.value.toString() ?? '0') ?? 0 : 0,
+            trackstar: row.length > 14 ? row[14]?.value.toString() == '1' : false,
+            specialKategori: row.length > 15 ? row[15]?.value.toString() ?? '' : '',
+            netflix: row.length > 16 ? row[16]?.value.toString() == '1' : false,
+            hotwheelShowdown: row.length > 17 ? row[17]?.value.toString() == '1' : false,
+            warna1: row.length > 18 ? row[18]?.value.toString() ?? '' : '',
+            warna2: row.length > 19 ? row[19]?.value.toString() : null,
+            warna3: row.length > 20 ? row[20]?.value.toString() : null,
+            foto: row.length > 21 ? row[21]?.value.toString() ?? '' : '',
+            isSynced: 0,
+          );
+
+          importedItems.add(item);
+
+          debugPrint("Row $i berhasil dibuat");
+        } catch (e, s) {
+          debugPrint("========== ERROR ROW $i ==========");
+          debugPrint(e.toString());
+          debugPrint(s.toString());
+          rethrow;
+        }
+      }
+
+      debugPrint("=================================");
+      debugPrint("Total Imported : ${importedItems.length}");
+
+      if (!mounted) return;
+
+      Navigator.push(context, MaterialPageRoute(builder: (_) => ImportPreviewScreen(previewItems: importedItems)));
+
+      debugPrint("Navigator.push selesai");
+    } catch (e, s) {
+      debugPrint("========== IMPORT ERROR ==========");
+      debugPrint(e.toString());
+      debugPrint(s.toString());
+
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Import gagal: $e")));
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -354,13 +465,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
   Widget _buildAppBar(bool isMobile) {
     return SliverAppBar(
-      floating: true,
       pinned: true,
-      expandedHeight: 120,
-      title: const Text('HW Collector Pro', style: TextStyle(fontWeight: FontWeight.bold)),
-      flexibleSpace: FlexibleSpaceBar(
-        background: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 60, 16, 8),
+      floating: true,
+      title: const Text("HW Collector Pro"),
+      bottom: PreferredSize(
+        preferredSize: const Size.fromHeight(80),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
           child: SearchBar(
             controller: _searchController,
             hintText: 'Cari nama, kategori, atau warna...',
@@ -375,7 +486,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           tooltip: 'Export',
           onPressed: _exportToExcelWithImages,
         ),
-        // IconButton(icon: const Icon(Icons.file_upload_outlined), tooltip: 'Import', onPressed: _importFromExcel),
+        IconButton(icon: const Icon(Icons.file_upload_outlined), tooltip: 'Import', onPressed: _importFromExcel),
         IconButton(
           icon: _isSyncing
               ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
@@ -490,19 +601,18 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 fit: StackFit.expand,
                 children: [
                   Container(color: Theme.of(context).colorScheme.surfaceContainerHighest, child: _safeImage(item.foto)),
-                  if (item.foto.isEmpty)
-                    Positioned(
-                      bottom: 8,
-                      right: 8,
-                      child: CircleAvatar(
-                        radius: 18,
-                        backgroundColor: Colors.blue.withOpacity(0.8),
-                        child: IconButton(
-                          icon: const Icon(Icons.add_a_photo, size: 16, color: Colors.white),
-                          onPressed: () => _quickAddPhoto(item),
-                        ),
+                  Positioned(
+                    bottom: 8,
+                    right: 8,
+                    child: CircleAvatar(
+                      radius: 18,
+                      backgroundColor: Colors.blue.withOpacity(0.8),
+                      child: IconButton(
+                        icon: const Icon(Icons.add_a_photo, size: 16, color: Colors.white),
+                        onPressed: () => _quickAddPhoto(item),
                       ),
                     ),
+                  ),
                 ],
               ),
             ),
