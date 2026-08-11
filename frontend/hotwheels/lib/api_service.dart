@@ -1,11 +1,13 @@
 ﻿import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'models/collection_item.dart';
 
 class ApiService {
+  // Gunakan port 3001 (HTTP) untuk Flutter Web Debug guna menghindari Mixed Content / SSL issues
   static const String _baseUrl = 'https://192.168.0.135:3000';
   static const String _tokenKey = 'auth_token';
 
@@ -47,15 +49,28 @@ class ApiService {
       body: jsonEncode({'username': username, 'password': password}),
     );
 
+    debugPrint('LOGIN status: ${response.statusCode}');
+    debugPrint('LOGIN body: ${response.body}');
+
     final body = jsonDecode(response.body);
+
     if (response.statusCode == 200) {
       final tokenValue = body['token']?.toString();
+
+      debugPrint('LOGIN token received: ${tokenValue != null && tokenValue.isNotEmpty}');
+
       if (tokenValue == null || tokenValue.isEmpty) {
-        throw Exception('Token tidak diterima');
+        throw Exception('Token tidak diterima dari server');
       }
-      await _prefs.setString(_tokenKey, tokenValue);
+
+      final saved = await _prefs.setString(_tokenKey, tokenValue);
+
+      debugPrint('LOGIN token saved: $saved');
+      debugPrint('LOGIN token exists after save: ${token != null}');
+
       return;
     }
+
     throw Exception(body['message'] ?? body['error'] ?? 'Login gagal');
   }
 
@@ -90,20 +105,38 @@ class ApiService {
     throw Exception(body['message'] ?? body['error'] ?? 'Gagal mengambil data dari server');
   }
 
-  // FITUR BARU: Sinkronisasi penghapusan ke server
   Future<void> syncDeletions(List<String> ids) async {
     final authToken = token;
-    if (authToken == null || authToken.isEmpty) return;
-
-    final response = await http.post(
-      Uri.parse('$_baseUrl/api/sync/delete'),
-      headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer $authToken'},
-      body: jsonEncode({'ids': ids}),
-    );
-
-    if (response.statusCode != 200) {
-      final body = jsonDecode(response.body);
-      throw Exception(body['message'] ?? 'Gagal sinkronisasi penghapusan');
+    debugPrint('API: syncDeletions called');
+    debugPrint('API: IDs = $ids');
+    debugPrint('API: Token exists = ${authToken != null && authToken.isNotEmpty}');
+    debugPrint('API: URL = $_baseUrl/api/sync/delete');
+    if (authToken == null || authToken.isEmpty) {
+      throw Exception('Auth token is missing');
+    }
+    try {
+      final response = await http.post(
+        Uri.parse('$_baseUrl/api/sync/delete'),
+        headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer $authToken'},
+        body: jsonEncode({'ids': ids}),
+      );
+      debugPrint('API: Response status = ${response.statusCode}');
+      debugPrint('API: Response body = ${response.body}');
+      if (response.statusCode != 200) {
+        String message = 'Gagal sinkronisasi penghapusan';
+        try {
+          final body = jsonDecode(response.body);
+          message = body['message'] ?? message;
+        } catch (_) {
+          message = response.body.isNotEmpty ? response.body : message;
+        }
+        throw Exception('HTTP ${response.statusCode}: $message');
+      }
+      debugPrint('API: Delete sync successful');
+    } catch (e, stackTrace) {
+      debugPrint('API: syncDeletions exception: $e');
+      debugPrint('API: StackTrace: $stackTrace');
+      rethrow;
     }
   }
 

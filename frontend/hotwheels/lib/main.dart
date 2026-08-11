@@ -7,6 +7,37 @@ import 'package:google_fonts/google_fonts.dart';
 import 'providers.dart';
 import 'screens/home_screen.dart';
 import 'screens/login_screen.dart';
+import 'package:package_info_plus/package_info_plus.dart';
+
+class AppVersionText extends StatelessWidget {
+  const AppVersionText({super.key});
+
+  Future<String> _getVersion() async {
+    final packageInfo = await PackageInfo.fromPlatform();
+    return packageInfo.version;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<PackageInfo>(
+      future: PackageInfo.fromPlatform(),
+      builder: (context, snapshot) {
+        if (!snapshot.hasData) {
+          return const SizedBox.shrink();
+        }
+
+        return Center(
+          child: Text(
+            'Hot Wheels Collector Pro v${snapshot.data!.version}',
+            style: const TextStyle(color: Colors.grey, fontSize: 12),
+            overflow: TextOverflow.visible,
+            softWrap: false,
+          ),
+        );
+      },
+    );
+  }
+}
 
 // Class untuk mengizinkan sertifikat SSL yang tidak valid (Self-Signed)
 class MyHttpOverrides extends HttpOverrides {
@@ -39,18 +70,12 @@ class MyApp extends StatelessWidget {
       themeMode: ThemeMode.system,
       theme: ThemeData(
         useMaterial3: true,
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFF1E88E5),
-          brightness: Brightness.light,
-        ),
+        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF1E88E5), brightness: Brightness.light),
         textTheme: GoogleFonts.poppinsTextTheme(),
       ),
       darkTheme: ThemeData(
         useMaterial3: true,
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFF1E88E5),
-          brightness: Brightness.dark,
-        ),
+        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF1E88E5), brightness: Brightness.dark),
         textTheme: GoogleFonts.poppinsTextTheme(ThemeData.dark().textTheme),
       ),
       home: const AuthWrapper(),
@@ -60,13 +85,10 @@ class MyApp extends StatelessWidget {
 
 class AuthWrapper extends ConsumerWidget {
   const AuthWrapper({super.key});
-
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final authState = ref.watch(authStateProvider);
-
-    // DEBUG BYPASS: Langsung ke HomeScreen jika dalam mode debug Flutter
-    if (kDebugMode || authState.loggedIn) {
+    if (authState.loggedIn) {
       return const HomeScreen();
     } else {
       return const LoginScreen();

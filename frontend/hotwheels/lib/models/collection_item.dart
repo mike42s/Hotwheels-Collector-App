@@ -22,6 +22,9 @@ class CollectionItem {
   final String? warna3;
   final String foto;
   final int isSynced;
+  final String updatedAt;
+  final String createdAt; // NEW FIELD
+  final String photoUpdatedAt; // NEW FIELD
 
   CollectionItem({
     required this.id,
@@ -47,6 +50,9 @@ class CollectionItem {
     this.warna3,
     required this.foto,
     this.isSynced = 0,
+    this.updatedAt = '',
+    this.createdAt = '',
+    this.photoUpdatedAt = '',
   });
 
   factory CollectionItem.fromMap(Map<String, dynamic> map) {
@@ -64,7 +70,6 @@ class CollectionItem {
       return double.tryParse(value.toString()) ?? 0.0;
     }
 
-    // Helper for split penomoran which might be in old format
     String getPenomoran1(Map<String, dynamic> m) {
       if (m.containsKey('penomoran_1')) return m['penomoran_1']?.toString() ?? '';
       if (m.containsKey('penomoran')) {
@@ -127,6 +132,9 @@ class CollectionItem {
       warna3: map['warna_3']?.toString(),
       foto: map['foto']?.toString() ?? '',
       isSynced: parseInt(map['is_synced']),
+      updatedAt: map['updated_at']?.toString() ?? '',
+      createdAt: map['created_at']?.toString() ?? '',
+      photoUpdatedAt: map['photo_updated_at']?.toString() ?? '',
     );
   }
 
@@ -155,6 +163,9 @@ class CollectionItem {
       'warna_3': warna3,
       'foto': foto,
       'is_synced': isSynced,
+      'updated_at': updatedAt,
+      'created_at': createdAt,
+      'photo_updated_at': photoUpdatedAt,
     };
   }
 
@@ -182,6 +193,9 @@ class CollectionItem {
       'warna_2': warna2,
       'warna_3': warna3,
       'foto': foto,
+      'updated_at': updatedAt,
+      'created_at': createdAt,
+      'photo_updated_at': photoUpdatedAt,
     };
   }
 
@@ -213,6 +227,9 @@ class CollectionItem {
     String? warna3,
     String? foto,
     int? isSynced,
+    String? updatedAt,
+    String? createdAt,
+    String? photoUpdatedAt,
   }) {
     return CollectionItem(
       id: id ?? this.id,
@@ -238,6 +255,9 @@ class CollectionItem {
       warna3: warna3 ?? this.warna3,
       foto: foto ?? this.foto,
       isSynced: isSynced ?? this.isSynced,
+      updatedAt: updatedAt ?? this.updatedAt,
+      createdAt: createdAt ?? this.createdAt,
+      photoUpdatedAt: photoUpdatedAt ?? this.photoUpdatedAt,
     );
   }
 }

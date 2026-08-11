@@ -11,6 +11,7 @@ import 'package:image/image.dart' as img;
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:open_filex/open_filex.dart';
+import 'package:intl/intl.dart';
 // ignore: avoid_web_libraries_in_flutter
 import 'dart:html' as html;
 
@@ -121,7 +122,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     final jpeg = img.encodeJpg(resized, quality: 40);
     final base64String = base64Encode(jpeg);
 
-    final updatedItem = item.copyWith(foto: base64String, isSynced: 0);
+    final updatedItem = item.copyWith(
+      foto: base64String,
+      isSynced: 0,
+      photoUpdatedAt: DateFormat('dd-MM-yyyy HH:mm').format(DateTime.now()),
+    );
     await ref.read(databaseHelperProvider).updateItem(updatedItem);
     ref.read(collectionListProvider.notifier).loadInitial();
 
@@ -156,6 +161,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       final xlsio.Worksheet sheet = workbook.worksheets[0];
       sheet.name = 'HotWheels_Gallery';
 
+      // TOTAL HEADERS: 25 (0 to 24)
       final headers = [
         'ID',
         'Nama',
@@ -178,6 +184,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         'Warna 1',
         'Warna 2',
         'Warna 3',
+        'CreatedAt',
+        'UpdatedAt',
+        'PhotoUpdatedAt',
         'FotoBase64',
       ];
 
@@ -217,25 +226,29 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         sheet.getRangeByIndex(row, 19).setText(item.warna1);
         sheet.getRangeByIndex(row, 20).setText(item.warna2 ?? '');
         sheet.getRangeByIndex(row, 21).setText(item.warna3 ?? '');
+        sheet.getRangeByIndex(row, 22).setText(item.createdAt);
+        sheet.getRangeByIndex(row, 23).setText(item.updatedAt);
+        sheet.getRangeByIndex(row, 24).setText(item.photoUpdatedAt);
 
+        // FotoBase64 di kolom ke-25 (Index 24)
         String photoData = item.foto;
-        if (photoData.length > 32000) photoData = photoData.substring(0, 32000);
-        sheet.getRangeByIndex(row, 22).setText(photoData);
+        if (photoData.length > 32700) photoData = photoData.substring(0, 32700);
+        sheet.getRangeByIndex(row, 25).setText(photoData);
 
         if (item.foto.isNotEmpty) {
           try {
             final List<int> imageBytes = base64Decode(item.foto);
-            final xlsio.Picture picture = sheet.pictures.addStream(row, 22, imageBytes);
+            final xlsio.Picture picture = sheet.pictures.addStream(row, 25, imageBytes);
             picture.lastRow = row;
-            picture.lastColumn = 22;
+            picture.lastColumn = 25;
             picture.height = 95;
             picture.width = 95;
           } catch (_) {}
         }
       }
 
-      sheet.setColumnWidthInPixels(22, 110);
-      sheet.getRangeByName('A1:U1').autoFitColumns();
+      sheet.setColumnWidthInPixels(25, 110);
+      sheet.getRangeByName('A1:X1').autoFitColumns();
       final List<int> bytes = workbook.saveAsStream();
       workbook.dispose();
 
@@ -250,15 +263,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         // MOBILE EXPORT LOGIC
         if (Platform.isAndroid) {
           await Permission.storage.request();
-          await Permission.manageExternalStorage.request();
+          await Permission.photos.request();
         }
-
         Directory? directory;
         if (Platform.isAndroid) {
           directory = Directory('/storage/emulated/0/Download');
-          if (!await directory.exists()) {
-            directory = await getExternalStorageDirectory();
-          }
+          if (!await directory.exists()) directory = await getExternalStorageDirectory();
         } else {
           directory = await getApplicationDocumentsDirectory();
         }
@@ -282,15 +292,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         }
         return;
       }
+
       if (mounted) Navigator.pop(context);
     } catch (e) {
       if (mounted) Navigator.pop(context);
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Export Gagal: $e')));
     }
-  }
-
-  String _cellValue(dynamic cell) {
-    return cell?.value?.toString() ?? '';
   }
 
   Future<void> _importFromExcel() async {
@@ -300,84 +307,55 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         allowedExtensions: ['xlsx'],
         withData: true,
       );
-
-      if (result == null) return;
-
+      if (result == null || result.files.isEmpty) return;
       final bytes = result.files.single.bytes;
-      if (bytes == null) {
-        throw Exception("File bytes is null");
-      }
-
+      if (bytes == null) return;
       final excel = excel_lib.Excel.decodeBytes(bytes);
-
-      if (excel.tables.isEmpty) {
-        throw Exception("Sheet tidak ditemukan");
-      }
-
       final sheet = excel.tables.values.first;
-
       final List<CollectionItem> importedItems = [];
 
-      for (int i = 1; i < sheet.maxRows; i++) {
-        try {
-          final row = sheet.rows[i];
+      for (var i = 1; i < sheet.maxRows; i++) {
+        final row = sheet.rows[i];
+        if (row.length < 2) continue;
 
-          debugPrint("========== ROW $i ==========");
-          debugPrint("Length : ${row.length}");
+        // HELPER FUNGSI UNTUK AMBIL DATA SESUAI INDEX (0-24)
+        String getVal(int index) => row.length > index ? (row[index]?.value?.toString() ?? '') : '';
 
-          final item = CollectionItem(
-            id: row.length > 0 ? row[0]?.value.toString() ?? '' : '',
-            namaKendaraan: row.length > 1 ? row[1]?.value.toString() ?? '' : '',
-            tglPembelian: row.length > 2 ? row[2]?.value.toString() ?? '' : '',
-            lokasiBeli: row.length > 3 ? row[3]?.value.toString() ?? '' : '',
-            hargaBeli: row.length > 4 ? double.tryParse(row[4]?.value.toString() ?? '0') ?? 0 : 0,
-            penomoran1: row.length > 5 ? row[5]?.value.toString() ?? '' : '',
-            penomoran2: row.length > 6 ? row[6]?.value.toString() ?? '' : '',
-            kategoriKendaraan: row.length > 7 ? row[7]?.value.toString() ?? '' : '',
-            penomoranKategori1: row.length > 8 ? row[8]?.value.toString() ?? '' : '',
-            penomoranKategori2: row.length > 9 ? row[9]?.value.toString() ?? '' : '',
-            kodeHotwheel: row.length > 10 ? row[10]?.value.toString() ?? '' : '',
-            kendaraan: row.length > 11 ? row[11]?.value.toString() ?? 'Mobil' : 'Mobil',
-            jenisKendaraan: row.length > 12 ? row[12]?.value.toString() ?? '' : '',
-            tahunKendaraan: row.length > 13 ? int.tryParse(row[13]?.value.toString() ?? '0') ?? 0 : 0,
-            trackstar: row.length > 14 ? row[14]?.value.toString() == '1' : false,
-            specialKategori: row.length > 15 ? row[15]?.value.toString() ?? '' : '',
-            netflix: row.length > 16 ? row[16]?.value.toString() == '1' : false,
-            hotwheelShowdown: row.length > 17 ? row[17]?.value.toString() == '1' : false,
-            warna1: row.length > 18 ? row[18]?.value.toString() ?? '' : '',
-            warna2: row.length > 19 ? row[19]?.value.toString() : null,
-            warna3: row.length > 20 ? row[20]?.value.toString() : null,
-            foto: row.length > 21 ? row[21]?.value.toString() ?? '' : '',
+        importedItems.add(
+          CollectionItem(
+            id: getVal(0),
+            namaKendaraan: getVal(1),
+            tglPembelian: getVal(2),
+            lokasiBeli: getVal(3),
+            hargaBeli: double.tryParse(getVal(4)) ?? 0.0,
+            penomoran1: getVal(5),
+            penomoran2: getVal(6),
+            kategoriKendaraan: getVal(7),
+            penomoranKategori1: getVal(8),
+            penomoranKategori2: getVal(9),
+            kodeHotwheel: getVal(10),
+            kendaraan: getVal(11).isEmpty ? 'Mobil' : getVal(11),
+            jenisKendaraan: getVal(12),
+            tahunKendaraan: int.tryParse(getVal(13)) ?? 0,
+            trackstar: getVal(14) == '1',
+            specialKategori: getVal(15),
+            netflix: getVal(16) == '1',
+            hotwheelShowdown: getVal(17) == '1',
+            warna1: getVal(18),
+            warna2: getVal(19),
+            warna3: getVal(20),
+            createdAt: getVal(21),
+            updatedAt: getVal(22),
+            photoUpdatedAt: getVal(23),
+            foto: getVal(24), // FOTO SEKARANG DI INDEX 24 (Kolom 25)
             isSynced: 0,
-          );
-
-          importedItems.add(item);
-
-          debugPrint("Row $i berhasil dibuat");
-        } catch (e, s) {
-          debugPrint("========== ERROR ROW $i ==========");
-          debugPrint(e.toString());
-          debugPrint(s.toString());
-          rethrow;
-        }
+          ),
+        );
       }
-
-      debugPrint("=================================");
-      debugPrint("Total Imported : ${importedItems.length}");
-
-      if (!mounted) return;
-
-      Navigator.push(context, MaterialPageRoute(builder: (_) => ImportPreviewScreen(previewItems: importedItems)));
-
-      debugPrint("Navigator.push selesai");
-    } catch (e, s) {
-      debugPrint("========== IMPORT ERROR ==========");
-      debugPrint(e.toString());
-      debugPrint(s.toString());
-
-      if (!mounted) return;
-
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Import gagal: $e")));
+      if (mounted)
+        Navigator.push(context, MaterialPageRoute(builder: (_) => ImportPreviewScreen(previewItems: importedItems)));
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Import Gagal: $e')));
     }
   }
 
@@ -467,6 +445,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     return SliverAppBar(
       pinned: true,
       floating: true,
+      expandedHeight: 120,
       title: const Text("HW Collector Pro"),
       bottom: PreferredSize(
         preferredSize: const Size.fromHeight(80),

@@ -36,7 +36,7 @@ class DatabaseHelper {
       return await factory.openDatabase(
         path,
         options: OpenDatabaseOptions(
-          version: 3, // Increment version for new columns
+          version: 5, // Upgraded to version 5
           onCreate: (db, version) async {
             await _onCreate(db, version);
             await _createDeletedTable(db);
@@ -46,13 +46,20 @@ class DatabaseHelper {
               await _createDeletedTable(db);
             }
             if (oldVersion < 3) {
-              // Migration to version 3
               await db.execute('ALTER TABLE collection ADD warna_3 TEXT');
               await db.execute('ALTER TABLE collection ADD penomoran_1 TEXT');
               await db.execute('ALTER TABLE collection ADD penomoran_2 TEXT');
               await db.execute('ALTER TABLE collection ADD penomoran_kategori_1 TEXT');
               await db.execute('ALTER TABLE collection ADD penomoran_kategori_2 TEXT');
               await db.execute('ALTER TABLE collection ADD jenis_kendaraan TEXT');
+            }
+            if (oldVersion < 4) {
+              await db.execute('ALTER TABLE collection ADD updated_at TEXT');
+            }
+            if (oldVersion < 5) {
+              // Migration to version 5
+              await db.execute('ALTER TABLE collection ADD created_at TEXT');
+              await db.execute('ALTER TABLE collection ADD photo_updated_at TEXT');
             }
           },
         ),
@@ -88,7 +95,10 @@ class DatabaseHelper {
         warna_2 TEXT,
         warna_3 TEXT,
         foto TEXT,
-        is_synced INTEGER DEFAULT 0
+        is_synced INTEGER DEFAULT 0,
+        updated_at TEXT,
+        created_at TEXT,
+        photo_updated_at TEXT
       )
     ''');
   }
@@ -179,10 +189,8 @@ class DatabaseHelper {
     await db.delete('deleted_items', where: "id IN ($placeholders)", whereArgs: ids);
   }
 
-  // FITUR BARU: Ambil nilai unik untuk auto-suggestion
   Future<List<String>> getUniqueValues(String column) async {
     final db = await database;
-    // PENTING: Gunakan tanda kutip tunggal ('') untuk string literal di SQLite
     final rows = await db.rawQuery("SELECT DISTINCT $column FROM collection WHERE $column IS NOT NULL AND $column != ''");
     return rows.map((row) => row[column].toString()).toList();
   }

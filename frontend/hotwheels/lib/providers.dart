@@ -144,29 +144,46 @@ class CollectionListNotifier extends StateNotifier<CollectionListState> {
   }
 
   Future<void> syncData() async {
-    final api = await ref.read(apiServiceProvider.future);
+    try {
+      debugPrint('Sync: Memulai proses sinkronisasi...');
+      final api = await ref.read(apiServiceProvider.future);
 
-    // 1. Sinkronisasi Penghapusan (Kirim ID yang dihapus lokal ke server)
-    final deletedIds = await _db.getDeletedIds();
-    if (deletedIds.isNotEmpty) {
-      await api.syncDeletions(deletedIds);
-      await _db.clearDeletedIds(deletedIds);
+      // 1. Sinkronisasi Penghapusan (Kirim ID yang dihapus lokal ke server)
+      final deletedIds = await _db.getDeletedIds();
+      if (deletedIds.isNotEmpty) {
+        debugPrint('Sync: Mengirim ${deletedIds.length} ID untuk dihapus di server...');
+        await api.syncDeletions(deletedIds);
+        await _db.clearDeletedIds(deletedIds);
+        debugPrint('Sync: Penghapusan berhasil.');
+      }
+
+      // 2. Upload Unsynced (Baru/Update)
+      final unsynced = await _db.getUnsyncedItems();
+      if (unsynced.isNotEmpty) {
+        debugPrint('Sync: Mengunggah ${unsynced.length} item baru/update ke server...');
+        await api.syncCollections(unsynced);
+        await _db.markItemsAsSynced(unsynced.map((i) => i.id).toList());
+        debugPrint('Sync: Upload berhasil.');
+      }
+
+      // 3. Download Remote
+      debugPrint('Sync: Mengunduh data terbaru dari server...');
+      final remote = await api.fetchCollections();
+      debugPrint('Sync: Berhasil mengunduh ${remote.length} item dari server.');
+
+      for (final item in remote) {
+        // Gunakan replace logic agar data lokal selalu terupdate dengan data server
+        await _db.insertItem(item.copyWith(isSynced: 1));
+      }
+      debugPrint('Sync: Sinkronisasi database lokal selesai.');
+
+      await loadInitial();
+      debugPrint('Sync: Proses selesai sepenuhnya.');
+    } catch (e, stack) {
+      debugPrint('Sync Error: $e');
+      debugPrint('Stacktrace: $stack');
+      rethrow; // Teruskan agar bisa ditangkap oleh UI
     }
-
-    // 2. Upload Unsynced (Baru/Update)
-    final unsynced = await _db.getUnsyncedItems();
-    if (unsynced.isNotEmpty) {
-      await api.syncCollections(unsynced);
-      await _db.markItemsAsSynced(unsynced.map((i) => i.id).toList());
-    }
-
-    // 3. Download Remote
-    final remote = await api.fetchCollections();
-    for (final item in remote) {
-      await _db.insertItem(item.copyWith(isSynced: 1));
-    }
-
-    await loadInitial();
   }
 
   Future<void> clearAll() async {
@@ -175,27 +192,34 @@ class CollectionListNotifier extends StateNotifier<CollectionListState> {
   }
 
   Future<void> deleteItem(String id) async {
+    debugPrint('Notifier: Attempting to delete ID: $id');
+    final api = await ref.read(apiServiceProvider.future);
+    try {
+      debugPrint('Notifier: Calling API syncDeletions for $id');
+      await api.syncDeletions([id]);
+      debugPrint('Notifier: Immediate server delete successful.');
+    } catch (e, stackTrace) {
+      debugPrint('Notifier: Server delete failed!');
+      debugPrint('Notifier: Error: $e');
+      debugPrint('Notifier: StackTrace: $stackTrace');
+    }
+    debugPrint('Notifier: Calling local DB deleteItem for $id');
     await _db.deleteItem(id);
+    debugPrint('Notifier: Local DB delete successful for $id');
     await loadInitial();
+    debugPrint('Notifier: Delete process completed for $id');
   }
 
   Future<List<String>> getSuggestions(String column) async {
     try {
-      // 1. Ambil data dari Database Lokal
       final localData = await _db.getUniqueValues(column);
-
-      // 2. Ambil data dari Server melalui ApiService
       final api = await ref.read(apiServiceProvider.future);
       final remoteData = await api.fetchSuggestions(column);
-
-      // 3. Gabungkan keduanya, hapus duplikat (menggunakan Set), dan urutkan
       final combined = <String>{...localData, ...remoteData}.toList();
       combined.sort();
-
       return combined;
     } catch (e) {
       debugPrint('Error getting suggestions: $e');
-      // Fallback ke data lokal jika server bermasalah
       return await _db.getUniqueValues(column);
     }
   }
@@ -222,9 +246,7 @@ class CollectionListNotifier extends StateNotifier<CollectionListState> {
         lokasiBeli: locations[r.nextInt(locations.length)],
         hargaBeli: ((r.nextInt(100) + 30) * 1000).toDouble(),
         namaKendaraan: names[r.nextInt(names.length)],
-        // penomoran: '${r.nextInt(250)}/250',
         kategoriKendaraan: categories[r.nextInt(categories.length)],
-        // penomoranKategori: '${r.nextInt(10)}/10',
         kodeHotwheel: 'HKX${r.nextInt(999)}',
         kendaraan: r.nextBool() ? 'Mobil' : 'Motor',
         tahunKendaraan: 2020 + r.nextInt(5),
@@ -236,11 +258,14 @@ class CollectionListNotifier extends StateNotifier<CollectionListState> {
         warna2: r.nextBool() ? colors[r.nextInt(colors.length)] : null,
         foto: '',
         isSynced: 0,
-        penomoran1: '',
-        penomoran2: '',
-        penomoranKategori1: '',
-        penomoranKategori2: '',
-        jenisKendaraan: '',
+        penomoran1: r.nextInt(250).toString(),
+        penomoran2: '250',
+        penomoranKategori1: (r.nextInt(10) + 1).toString(),
+        penomoranKategori2: '10',
+        jenisKendaraan: 'City Car',
+        createdAt: '09-08-2026 21:00',
+        updatedAt: '09-08-2026 21:00',
+        photoUpdatedAt: '',
       );
       await _db.insertItem(item);
     }

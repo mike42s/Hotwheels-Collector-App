@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:hotwheels/main.dart';
 import '../providers.dart';
 
 class SettingsScreen extends ConsumerWidget {
@@ -8,13 +9,14 @@ class SettingsScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Settings & Tools'),
-      ),
+      appBar: AppBar(title: const Text('Settings & Tools')),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          const Text('Database Tools', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.blue)),
+          const Text(
+            'Database Tools',
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.blue),
+          ),
           const SizedBox(height: 16),
           Card(
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -27,9 +29,9 @@ class SettingsScreen extends ConsumerWidget {
                   onTap: () async {
                     await ref.read(collectionListProvider.notifier).generateDummyData();
                     if (context.mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('50 Dummy data berhasil ditambahkan'))
-                      );
+                      ScaffoldMessenger.of(
+                        context,
+                      ).showSnackBar(const SnackBar(content: Text('50 Dummy data berhasil ditambahkan')));
                     }
                   },
                 ),
@@ -44,7 +46,10 @@ class SettingsScreen extends ConsumerWidget {
             ),
           ),
           const SizedBox(height: 32),
-          const Text('Account', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.blue)),
+          const Text(
+            'Account',
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.blue),
+          ),
           const SizedBox(height: 16),
           Card(
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -55,6 +60,14 @@ class SettingsScreen extends ConsumerWidget {
               onTap: () => ref.read(authStateProvider.notifier).logout(),
             ),
           ),
+          const SizedBox(height: 48),
+          // const Center(
+          //   child: Text(
+          //     'Hot Wheels Collector Pro v1.0.4',
+          //     style: TextStyle(color: Colors.grey, fontSize: 12),
+          //   ),
+          // ),
+          const AppVersionText(),
         ],
       ),
     );
@@ -65,12 +78,17 @@ class SettingsScreen extends ConsumerWidget {
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Hapus Semua Data?'),
-        content: const Text('Tindakan ini akan menghapus SELURUH data lokal Anda. Pastikan sudah sinkron atau backup ke Excel.'),
+        content: const Text(
+          'Tindakan ini akan menghapus SELURUH data lokal Anda. Pastikan sudah sinkron atau backup ke Excel.',
+        ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Batal')),
           TextButton(
-            onPressed: () => Navigator.pop(ctx, true), 
-            child: const Text('YA, HAPUS SEMUA', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold))
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text(
+              'YA, HAPUS SEMUA',
+              style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold),
+            ),
           ),
         ],
       ),
@@ -78,9 +96,9 @@ class SettingsScreen extends ConsumerWidget {
     if (confirm == true) {
       await ref.read(collectionListProvider.notifier).clearAll();
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Database lokal berhasil dikosongkan'))
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Database lokal berhasil dikosongkan')));
       }
     }
   }

@@ -29,24 +29,21 @@ class _ImportPreviewScreenState extends ConsumerState<ImportPreviewScreen> {
     // Navigasi ke CollectionForm dengan mode isStaging = true
     final result = await Navigator.push<dynamic>(
       context,
-      MaterialPageRoute(
-        builder: (_) => CollectionForm(
-          item: _items[index],
-          isStaging: true, // Gunakan mode staging agar tidak langsung simpan ke DB
-        ),
-      ),
+      MaterialPageRoute(builder: (_) => CollectionForm(item: _items[index], isStaging: true)),
     );
 
-    if (result == null) {
-      // Jika result null, artinya item dihapus dari dalam form
-      setState(() {
-        _items.removeAt(index);
-      });
-    } else if (result is CollectionItem) {
-      // Jika result adalah CollectionItem, update data di list preview
-      setState(() {
-        _items[index] = result;
-      });
+    // FIX: Hanya update list jika ada kembalian data (bukan sekadar tekan back)
+    if (result != null) {
+      if (result is CollectionItem) {
+        setState(() {
+          _items[index] = result;
+        });
+      } else if (result == "DELETED") {
+        // Jika user sengaja klik hapus di dalam form staging
+        setState(() {
+          _items.removeAt(index);
+        });
+      }
     }
   }
 
@@ -77,12 +74,7 @@ class _ImportPreviewScreenState extends ConsumerState<ImportPreviewScreen> {
   }
 
   Future<void> _changePhoto(int index, ImageSource source) async {
-    final pickedFile = await ImagePicker().pickImage(
-      source: source,
-      maxWidth: 400,
-      maxHeight: 400,
-      imageQuality: 40,
-    );
+    final pickedFile = await ImagePicker().pickImage(source: source, maxWidth: 400, maxHeight: 400, imageQuality: 40);
     if (pickedFile == null) return;
 
     final bytes = await pickedFile.readAsBytes();
@@ -156,17 +148,21 @@ class _ImportPreviewScreenState extends ConsumerState<ImportPreviewScreen> {
 
       try {
         await ref.read(collectionListProvider.notifier).clearAll();
-        final processedItems = _items.map((item) => item.copyWith(
-          namaKendaraan: item.namaKendaraan.toUpperCase(),
-          lokasiBeli: item.lokasiBeli.toUpperCase(),
-          kategoriKendaraan: item.kategoriKendaraan.toUpperCase(),
-          jenisKendaraan: item.jenisKendaraan.toUpperCase(),
-          specialKategori: item.specialKategori.toUpperCase(),
-          warna1: item.warna1.toUpperCase(),
-          warna2: item.warna2?.toUpperCase(),
-          warna3: item.warna3?.toUpperCase(),
-          kodeHotwheel: item.kodeHotwheel.toUpperCase(),
-        )).toList();
+        final processedItems = _items
+            .map(
+              (item) => item.copyWith(
+                namaKendaraan: item.namaKendaraan.toUpperCase(),
+                lokasiBeli: item.lokasiBeli.toUpperCase(),
+                kategoriKendaraan: item.kategoriKendaraan.toUpperCase(),
+                jenisKendaraan: item.jenisKendaraan.toUpperCase(),
+                specialKategori: item.specialKategori.toUpperCase(),
+                warna1: item.warna1.toUpperCase(),
+                warna2: item.warna2?.toUpperCase(),
+                warna3: item.warna3?.toUpperCase(),
+                kodeHotwheel: item.kodeHotwheel.toUpperCase(),
+              ),
+            )
+            .toList();
 
         await ref.read(collectionListProvider.notifier).importItems(processedItems);
 
@@ -233,7 +229,8 @@ class _ImportPreviewScreenState extends ConsumerState<ImportPreviewScreen> {
                     leading: GestureDetector(
                       onTap: () => _showImagePickerSource(index),
                       child: Container(
-                        width: 60, height: 60,
+                        width: 60,
+                        height: 60,
                         decoration: BoxDecoration(
                           color: Colors.grey[200],
                           borderRadius: BorderRadius.circular(8),
@@ -244,22 +241,25 @@ class _ImportPreviewScreenState extends ConsumerState<ImportPreviewScreen> {
                           children: [
                             _safePreviewImage(item.foto),
                             Positioned(
-                              bottom: 0, right: 0,
+                              bottom: 0,
+                              right: 0,
                               child: Container(
                                 padding: const EdgeInsets.all(2),
                                 decoration: const BoxDecoration(color: Colors.blue, shape: BoxShape.circle),
                                 child: const Icon(Icons.add_a_photo, size: 12, color: Colors.white),
                               ),
-                            )
+                            ),
                           ],
                         ),
                       ),
                     ),
                     title: Text(
-                      item.namaKendaraan.isEmpty ? '(TANPA NAMA)' : item.namaKendaraan.toUpperCase(), 
-                      style: const TextStyle(fontWeight: FontWeight.bold)
+                      item.namaKendaraan.isEmpty ? '(TANPA NAMA)' : item.namaKendaraan.toUpperCase(),
+                      style: const TextStyle(fontWeight: FontWeight.bold),
                     ),
-                    subtitle: Text('${item.kategoriKendaraan.toUpperCase()} • ${item.warna1.toUpperCase()}\n${item.kodeHotwheel.toUpperCase()}'),
+                    subtitle: Text(
+                      '${item.kategoriKendaraan.toUpperCase()} • ${item.warna1.toUpperCase()}\n${item.kodeHotwheel.toUpperCase()}',
+                    ),
                     trailing: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
